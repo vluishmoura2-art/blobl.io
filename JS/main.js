@@ -708,7 +708,7 @@ function drawCrosshair(w, h) {
 }
 
 /* ---------- DRAW ---------- */
-function draw(time) {
+function draw(time = performance.now()) {
   const dpr = window.devicePixelRatio || 1;
   const { w, h } = viewSize();
 
