@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Blobl.io - canvas rendering base." />
+  <title>Blobl.io</title>
+  <link rel="stylesheet" href="CSS/style.css" />
+</head>
+<body>
+  <canvas id="canvas" aria-label="Canvas" role="img"></canvas>
+
+  <button id="wall-button" type="button" aria-label="Toggle walls" aria-pressed="false">
+    <canvas id="wall-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <button id="turret-button" type="button" aria-label="Toggle small turrets" aria-pressed="false">
+    <canvas id="turret-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <button id="generator-button" type="button" aria-label="Toggle generators" aria-pressed="false">
+    <canvas id="generator-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <button id="house-button" type="button" aria-label="Toggle houses" aria-pressed="false">
+    <canvas id="house-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <button id="sniper-button" type="button" aria-label="Toggle sniper turrets" aria-pressed="false">
+    <canvas id="sniper-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <button id="tent-button" type="button" aria-label="Toggle tents" aria-pressed="false">
+    <canvas id="tent-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <button id="swap-button" type="button" aria-label="Toggle drag-and-drop swap mode" aria-pressed="false">
+    <canvas id="swap-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <button id="delete-button" type="button" aria-label="Toggle delete mode" aria-pressed="false">
+    <canvas id="delete-icon" width="48" height="48" aria-hidden="true"></canvas>
+  </button>
+
+  <div id="power-box" role="status" aria-live="polite" aria-label="Power">
+    <span id="power-label">Power</span>
+    <span id="power-value">200</span>
+  </div>
+
+  <div id="leaderboard">
+    <div id="leaderboard-title">Leaderboard</div>
+    <div id="leaderboard-list"><div class="lb-row">No players</div></div>
+    <div id="connection-status">Offline</div>
+    <div id="mp-hint">Space = enable PvP (drops safe zone)</div>
+  </div>
+
+  <div id="eliminated">
+    <div id="eliminated-title">ELIMINATED</div>
+    <div id="eliminated-sub">Your base was destroyed by enemy soldiers.<br />Reload to join a new match.</div>
+  </div>
+
+  <div id="menu">
+    <h1 id="menu-title">BLOBL<span class="io">.IO</span></h1>
+    <form id="menu-form" autocomplete="off">
+      <input id="menu-name" type="text" maxlength="16" placeholder="Captain name" value="Player" aria-label="Player name" spellcheck="false" />
+      <label class="menu-color-row" for="menu-color">
+        <span>Base color</span>
+        <input id="menu-color" type="color" value="#e03b3b" aria-label="Base color" />
+      </label>
+      <button id="menu-play" type="button">set sail</button>
+    </form>
+  </div>
+
+  <script src="shared/combat.js" defer></script>
+  <script src="JS/main.js" defer></script>
+  <script src="JS/net.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,377 @@
+"use strict";
+
+/* =========================================================
+   Blobl.io - multiplayer client
+
+   Talks to server.js over a WebSocket:
+     - receives its spawn point (base position) + everyone else
+     - relays its own state (power, buildings, soldiers) at 10 Hz
+     - renders other players (base, buildings, soldiers, safe zone)
+     - drives the leaderboard (sorted by power)
+     - space toggles PvP on for yourself (drops the safe zone)
+
+   Fully optional: if the server is unreachable the game keeps
+   working as the existing single-player build.
+   ========================================================= */
+
+const HOST = (location.protocol === "https:" ? "wss://" : "ws://") + (location.hostname || "localhost") + ":" + (window.BLOB_PORT || 8080);
+
+const net = {
+  id: null,
+  online: false,
+  dead: false, // the server destroyed our base
+  players: new Map(), // id -> snapshot (includes ourself)
+  mySafe: true,
+  myPvp: false,
+  mySafeRemaining: 0,
+};
+
+/* Units the server hasn't confirmed yet (or just killed). A unit that stops
+   appearing in snapshots is removed only after GRACE, so a newly-sent unit
+   isn't culled during the round-trip delay. */
+const GRACE = 350; // ms
+let pendingRemove = new Map(); // uid -> removal due timestamp
+
+let netWs = null;
+let netSendTimer = 0;
+let netHadSession = false;
+
+/* ---------- connection ---------- */
+
+function initNet() {
+  netWs = new WebSocket(HOST);
+
+  netWs.onopen = () => {
+    setStatus("Connected - waiting for spawn...");
+  };
+
+  netWs.onmessage = (ev) => netMessage(ev.data);
+
+  netWs.onerror = () => {
+    if (!netHadSession) setStatus("Server unreachable");
+  };
+
+  netWs.onclose = () => {
+    netWs = null;
+    net.online = false;
+    setStatus(netHadSession ? "Lost connection - reload to rejoin" : "Offline");
+  };
+}
+
+function netMessage(raw) {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  if (msg.type === "welcome") {
+    net.id = msg.id;
+    net.online = true;
+    netHadSession = true;
+
+    // Our base is at the spawn point the server assigned us
+    PLAYER.x = msg.x;
+    PLAYER.y = msg.y;
+    camera.x = msg.x;
+    camera.y = msg.y;
+
+    net.mySafe = msg.safe;
+    net.myPvp = false;
+    net.mySafeRemaining = Math.max(0, msg.safeUntil - Date.now());
+
+    net.players = new Map();
+    for (const p of msg.players) net.players.set(p.id, p);
+
+    reconcileSelf(msg.players.find((p) => p.id === net.id));
+
+    // tell the server our chosen name + base color (leaderboard + hues)
+    if (typeof PROFILE === "object") {
+      netSend({ type: "identity", name: PROFILE.name, color: PROFILE.color });
+    }
+
+    refreshLeaderboard();
+    refreshPowerUI();
+    draw();
+  } else if (msg.type === "update") {
+    net.players = new Map();
+    for (const p of msg.players) net.players.set(p.id, p);
+
+    const me = net.players.get(net.id);
+    if (me) reconcileSelf(me);
+
+    refreshLeaderboard();
+  }
+}
+
+/* ---------- self reconciliation (server is authoritative on hp) ---------- */
+
+/* Apply the server's view of our own units: adopt hp, drop anything the server
+   stopped reporting (combat kills) after a short grace period, and surface a
+   base-health bar + the eliminated overlay. */
+function reconcileSelf(me) {
+  if (!me) return;
+
+  net.mySafe = me.safe;
+  net.myPvp = me.pvp;
+  net.mySafeRemaining = Math.max(0, me.safeUntil - Date.now());
+
+  if (typeof me.health === "number") {
+    state.playerHp = Math.max(0, Math.min(me.health, COMBAT.player.health));
+  }
+
+  if (me.dead && !net.dead) {
+    net.dead = true;
+    showEliminated();
+  }
+  if (!me.dead) net.dead = false;
+
+  const now = performance.now();
+
+  const serverB = new Map();
+  if (Array.isArray(me.buildings)) {
+    for (const rb of me.buildings) serverB.set(rb.uid, rb);
+  }
+  for (const p of placement.placed) {
+    const rb = serverB.get(p.uid);
+    if (rb) {
+      p.hp = rb.hp;
+      pendingRemove.delete(p.uid);
+    } else if (!pendingRemove.has(p.uid)) {
+      pendingRemove.set(p.uid, now + GRACE);
+    }
+  }
+  placement.placed = placement.placed.filter((p) => !(pendingRemove.has(p.uid) && pendingRemove.get(p.uid) < now));
+
+  const serverS = new Map();
+  if (Array.isArray(me.soldiers)) {
+    for (const rs of me.soldiers) serverS.set(rs.uid, rs);
+  }
+  for (const s of soldiers) {
+    const rs = serverS.get(s.uid);
+    if (rs) {
+      s.hp = rs.hp;
+      pendingRemove.delete(s.uid);
+    } else if (!pendingRemove.has(s.uid)) {
+      pendingRemove.set(s.uid, now + GRACE);
+    }
+  }
+  for (let i = soldiers.length - 1; i >= 0; i--) {
+    const s = soldiers[i];
+    if (pendingRemove.has(s.uid) && pendingRemove.get(s.uid) < now) soldiers.splice(i, 1);
+  }
+}
+
+function showEliminated() {
+  const el = document.getElementById("eliminated");
+  if (el) el.classList.add("show");
+  if (typeof draw === "function") draw();
+}
+
+/* ---------- outgoing state (10 Hz) ---------- */
+
+function netUpdate(dt) {
+  if (net.dead || !net.online || !netWs || netWs.readyState !== 1) return;
+
+  netSendTimer += dt;
+  if (netSendTimer < 0.1) return;
+  netSendTimer = 0;
+
+  netSend({
+    type: "state",
+    power: state.power,
+    buildings: placement.placed.map((p) => ({
+      b: BUILDINGS.indexOf(p.building),
+      x: p.x,
+      y: p.y,
+      dir: p.dir,
+      uid: p.uid,
+    })),
+    soldiers: soldiers.map((s) => ({ x: s.x, y: s.y, dir: s.dir, uid: s.uid })),
+  });
+}
+
+function netSend(obj) {
+  if (netWs && netWs.readyState === 1) netWs.send(JSON.stringify(obj));
+}
+
+/* ---------- PvP toggle (space) ---------- */
+
+function onSpaceForPvp() {
+  if (!net.online || net.dead) return;
+
+  net.myPvp = true;
+  net.mySafe = false;
+  netSend({ type: "pvp" });
+  draw();
+}
+
+/* ---------- rendering other players ---------- */
+
+function drawRemotePlayers() {
+  if (net.players.size === 0) return;
+
+  for (const rp of net.players.values()) {
+    if (rp.id === net.id) {
+      if (net.dead) continue; // eliminated overlay is shown instead
+      // our own safe-zone / PvP indicator
+      if (net.mySafe) {
+        drawSafeRing(PLAYER.x, PLAYER.y);
+        drawStatusLabel(PLAYER.x, PLAYER.y - PLACE.startSize - 34, "SAFE " + Math.ceil(net.mySafeRemaining / 1000) + "s", "#2fcf4f");
+      } else if (net.myPvp) {
+        drawStatusLabel(PLAYER.x, PLAYER.y - PLACE.startSize - 34, "PvP ON", "#e03939");
+      }
+      continue;
+    }
+
+    drawRemotePlayer(rp);
+  }
+}
+
+function drawRemotePlayer(rp) {
+  const color = rp.color || "#e03b3b";
+
+  // base circle
+  ctx.beginPath();
+  ctx.arc(rp.x, rp.y, PLACE.startSize, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = shadeColor(color, 45);
+  ctx.stroke();
+
+  if (typeof rp.health === "number") {
+    drawObjectHp(rp.x, rp.y - PLACE.startSize - 12, PLACE.startSize * 1.8, rp.health, COMBAT.player.health);
+  }
+
+  // buildings
+  if (Array.isArray(rp.buildings)) {
+    for (const rb of rp.buildings) paintRemoteBuilding(color, rb);
+  }
+
+  // soldiers
+  if (Array.isArray(rp.soldiers)) {
+    for (const s of rp.soldiers) {
+      paintSoldier(ctx, s.x, s.y, SOLDIER.size, s.dir || 0, color);
+      if (typeof s.hp === "number") {
+        drawObjectHp(s.x, s.y - SOLDIER.size - 8, SOLDIER.size * 1.6, s.hp, COMBAT.soldier.health);
+      }
+    }
+  }
+
+  // safe zone ring (over everything so it stays visible)
+  if (rp.safe) drawSafeRing(rp.x, rp.y);
+
+  // name tag
+  ctx.font = "600 13px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+  ctx.strokeText(rp.name, rp.x, rp.y - PLACE.startSize - 18);
+  ctx.fillStyle = color;
+  ctx.fillText(rp.name, rp.x, rp.y - PLACE.startSize - 18);
+}
+
+function paintRemoteBuilding(color, rb) {
+  const b = BUILDINGS[rb.b];
+  if (!b) return;
+
+  if (b.design === "turret") {
+    paintTurret(ctx, rb.x, rb.y, b.size, rb.dir || 0, b.barrel, color);
+  } else if (b.design === "generator") {
+    paintGenerator(ctx, rb.x, rb.y, b.size, color);
+  } else if (b.design === "house") {
+    paintHouse(ctx, rb.x, rb.y, b.size, color);
+  } else if (b.design === "tent") {
+    paintTent(ctx, rb.x, rb.y, b.size, color);
+  } else {
+    // default: plain circle (wall and everything else)
+    ctx.beginPath();
+    ctx.arc(rb.x, rb.y, b.size, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = BUILD_STYLE.borderWidth;
+    ctx.strokeStyle = BUILD_STYLE.border;
+    ctx.stroke();
+  }
+
+  if (typeof rb.hp === "number" && b.health) {
+    drawObjectHp(rb.x, rb.y - b.size - 8, Math.max(28, b.size * 1.4), rb.hp, b.health);
+  }
+}
+
+/* Green dashed ring marking a protected base */
+function drawSafeRing(x, y) {
+  ctx.save();
+  ctx.setLineDash(PLACE.dashed);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#2fcf4f";
+  ctx.beginPath();
+  ctx.arc(x, y, PLACE.startSize + 14, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawStatusLabel(x, y, text, color) {
+  ctx.font = "700 14px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+/* ---------- leaderboard ---------- */
+
+function setStatus(text) {
+  const el = document.getElementById("connection-status");
+  if (el) el.textContent = text;
+}
+
+function refreshLeaderboard() {
+  const list = document.getElementById("leaderboard-list");
+  if (!list) return;
+
+  const rows = [...net.players.values()]
+    .sort((a, b) => (b.power || 0) - (a.power || 0))
+    .map((p) => {
+      const you = p.id === net.id;
+      const cls = (you ? " you" : "") + (p.dead ? " dead" : "");
+      return (
+        '<div class="lb-row' + cls + '">' +
+        '<span class="lb-dot" style="background:' + p.color + '"></span>' +
+        '<span class="lb-name">' + escapeHtml(p.name) + "</span>" +
+        '<span class="lb-power">' + Math.floor(p.power || 0) + "</span>" +
+        "</div>"
+      );
+    })
+    .join("");
+
+  list.innerHTML = rows || '<div class="lb-row">No players</div>';
+
+  const n = net.players.size;
+  setStatus(net.online ? "Online - " + n + " player" + (n === 1 ? "" : "s") : "Offline");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
+}
+
+function shadeColor(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = (v) => Math.max(0, Math.min(255, v));
+  const r = c(((n >> 16) & 255) + amt);
+  const g = c(((n >> 8) & 255) + amt);
+  const b = c((n & 255) + amt);
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}

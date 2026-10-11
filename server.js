@@ -1,0 +1,458 @@
+"use strict";
+
+/* =========================================================
+   Blobl.io - multiplayer relay server
+
+   - No player limit (unlimited connections).
+   - New players spawn close together (a ring around the map
+     center) so they can see each other right away.
+   - Relays each player's state snapshot (power, buildings,
+     soldiers) to everyone at ~10 Hz, which also drives the
+     leaderboard (sorted by power).
+   - Safe zone: every player spawns safe (SAFE_TIME ms). The
+     zone clears when the timer runs out OR when the player
+     presses space (pvp message). Safe players cannot attack
+     or be attacked (combat consumes this flag later).
+   - Also serves the static files, so open
+        http://localhost:8080  in several tabs to test.
+   ========================================================= */
+
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const { WebSocketServer } = require("ws");
+const COMBAT = require("./shared/combat.js");
+
+const ROOT = __dirname;
+
+const CONFIG = {
+  port: Number(process.env.PORT) || 8080,
+  safeTime: 30 * 1000, // ms of safe-zone protection at spawn
+  broadcastMs: 100, // state relay rate (10 Hz)
+  startPower: 200,
+  map: { width: 3000, height: 3000 },
+  spawn: {
+    minDist: 400, // spawn ring radius, inner edge
+    maxDist: 650, // spawn ring radius, outer edge
+    minSeparation: 450, // keep spawns apart so they don't overlap
+    attempts: 60,
+  },
+  palette: [
+    "#e03b3b", "#3b7ee0", "#3be068", "#e8b93b",
+    "#a13be0", "#2fb8c8", "#e0603b", "#d03b8a",
+  ],
+};
+
+const CENTER = {
+  x: CONFIG.map.width / 2,
+  y: CONFIG.map.height / 2,
+};
+
+const players = new Map(); // id -> player record
+let nextId = 1;
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+};
+
+/* ---------- spawn ---------- */
+
+function spawnPosition() {
+  for (let i = 0; i < CONFIG.spawn.attempts; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const rad = CONFIG.spawn.minDist + Math.random() * (CONFIG.spawn.maxDist - CONFIG.spawn.minDist);
+    const x = CENTER.x + Math.cos(ang) * rad;
+    const y = CENTER.y + Math.sin(ang) * rad;
+
+    let ok = true;
+    for (const p of players.values()) {
+      if (Math.hypot(p.x - x, p.y - y) < CONFIG.spawn.minSeparation) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return { x, y };
+  }
+
+  return { x: CENTER.x + CONFIG.spawn.maxDist, y: CENTER.y };
+}
+
+function snapshot(p) {
+  return {
+    id: p.id,
+    name: p.name,
+    color: p.color,
+    x: p.x,
+    y: p.y,
+    power: p.power,
+    safe: p.safe,
+    pvp: p.pvp,
+    safeUntil: p.safeUntil,
+    health: Math.max(0, p.health),
+    dead: p.dead,
+    buildings: p.buildings.map((bd) => ({
+      uid: bd.uid,
+      b: bd.b,
+      x: bd.x,
+      y: bd.y,
+      dir: bd.dir,
+      hp: Math.ceil(Math.max(0, bd.hp)),
+    })),
+    soldiers: p.soldiers.map((s) => ({
+      uid: s.uid,
+      x: s.x,
+      y: s.y,
+      dir: s.dir,
+      hp: Math.ceil(Math.max(0, s.hp)),
+    })),
+  };
+}
+
+/* ---------- connection ---------- */
+
+function onConnection(ws, req) {
+  const id = "p" + nextId++;
+  const pos = spawnPosition();
+  const player = {
+    id,
+    ws,
+    name: "Player " + id,
+    color: CONFIG.palette[(nextId - 2) % CONFIG.palette.length],
+    x: pos.x,
+    y: pos.y,
+    power: CONFIG.startPower,
+    buildings: [],
+    soldiers: [],
+    health: COMBAT.player.health,
+    dead: false,
+    deadUids: [], // units combat killed, so a late client update can't resurrect them
+    safe: true,
+    safeUntil: Date.now() + CONFIG.safeTime,
+    pvp: false,
+  };
+
+  players.set(id, player);
+  console.log(`[+] ${player.name} joined (${players.size} online)`);
+
+  ws.on("error", () => {}); // ignore per-socket errors; 'close' cleans up
+  ws.on("message", (raw) => handleMessage(player, raw));
+  ws.on("close", () => {
+    players.delete(id);
+    console.log(`[-] ${player.name} left (${players.size} online)`);
+  });
+
+  send(ws, {
+    type: "welcome",
+    id,
+    name: player.name,
+    color: player.color,
+    x: player.x,
+    y: player.y,
+    safe: player.safe,
+    safeUntil: player.safeUntil,
+    safeTime: CONFIG.safeTime,
+    players: [...players.values()].map(snapshot),
+  });
+}
+
+function handleMessage(player, raw) {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  switch (msg && msg.type) {
+    case "state":
+      applyPlayerState(player, msg);
+      break;
+
+    case "identity": // name shown on the leaderboard, color tints the base
+      if (typeof msg.name === "string" && msg.name.trim()) {
+        player.name = msg.name.trim().slice(0, 24);
+      }
+      if (typeof msg.color === "string" && /^#[0-9a-fA-F]{6}$/.test(msg.color)) {
+        player.color = msg.color;
+      }
+      break;
+
+    case "pvp": // player pressed space: drop their safe zone, enable PvP
+      player.pvp = true;
+      player.safe = false;
+      break;
+  }
+}
+
+/* ---------- combat (authoritative) ---------- */
+
+const BUILDING_CAP = 500;
+const SOLDIER_CAP = 2000;
+const DEAD_UID_CAP = 500;
+
+/* Reconcile the list the client just sent with what we already track, keeping
+   the hp combat assigned and never resurrecting a unit the server destroyed. */
+function syncUnits(player, existing, incoming, isBuilding) {
+  const byUid = new Map();
+  for (const e of existing) byUid.set(e.uid, e);
+
+  const out = [];
+  for (const inc of incoming) {
+    const uid = inc.uid;
+    if (typeof uid !== "string" && typeof uid !== "number") continue;
+    if (player.deadUids.includes(uid)) continue;
+
+    let rec = byUid.get(uid);
+    if (rec) {
+      rec.x = inc.x;
+      rec.y = inc.y;
+      if (typeof inc.dir === "number") rec.dir = inc.dir;
+    } else if (isBuilding && Number.isInteger(inc.b)) {
+      const stat = COMBAT.buildingStats[inc.b];
+      if (!stat) continue;
+      rec = {
+        uid,
+        b: inc.b,
+        x: inc.x,
+        y: inc.y,
+        dir: typeof inc.dir === "number" ? inc.dir : 0,
+        size: stat.size,
+        hp: stat.health,
+        stat,
+      };
+    } else if (!isBuilding) {
+      rec = {
+        uid,
+        x: inc.x,
+        y: inc.y,
+        dir: typeof inc.dir === "number" ? inc.dir : 0,
+        hp: COMBAT.soldier.health,
+      };
+    } else {
+      continue;
+    }
+
+    out.push(rec);
+  }
+  return out;
+}
+
+function applyPlayerState(player, msg) {
+  if (player.dead) return; // dead players can't rebuild or fight
+
+  if (typeof msg.power === "number") player.power = Math.max(0, msg.power);
+  if (Array.isArray(msg.buildings)) {
+    player.buildings = syncUnits(player, player.buildings, msg.buildings.slice(0, BUILDING_CAP), true);
+  }
+  if (Array.isArray(msg.soldiers)) {
+    player.soldiers = syncUnits(player, player.soldiers, msg.soldiers.slice(0, SOLDIER_CAP), false);
+  }
+}
+
+function killUnit(player, uid) {
+  if (typeof uid !== "string" && typeof uid !== "number") return;
+  player.deadUids.push(uid);
+  if (player.deadUids.length > DEAD_UID_CAP) {
+    player.deadUids.splice(0, player.deadUids.length - DEAD_UID_CAP);
+  }
+}
+
+function killPlayer(player) {
+  if (player.dead) return;
+  player.dead = true;
+  player.health = 0;
+  player.buildings = [];
+  player.soldiers = [];
+}
+
+/* Damage applied per second while conditions hold. Only unsafe, alive players
+   take part; both sides must be unsafe before any damage is dealt. */
+function combatTick(dt) {
+  const combatants = [...players.values()].filter((p) => !p.dead);
+
+  // buildings shoot / hammer enemy soldiers
+  for (const a of combatants) {
+    if (a.safe) continue;
+    for (const bd of a.buildings) {
+      if (!bd.stat || bd.stat.damage <= 0) continue;
+      const reach = bd.stat.range ? bd.stat.range : bd.size + COMBAT.soldier.size;
+      for (const b of combatants) {
+        if (b.id === a.id || b.safe) continue;
+        if (b.soldiers.length === 0) continue;
+        for (const en of b.soldiers) {
+          const dx = en.x - bd.x;
+          const dy = en.y - bd.y;
+          if (dx * dx + dy * dy <= reach * reach) en.hp -= bd.stat.damage * dt;
+        }
+      }
+    }
+  }
+
+  // soldiers: contact damage to enemy buildings, base, and soldiers
+  for (const a of combatants) {
+    if (a.safe) continue;
+    for (const s of a.soldiers) {
+      for (const b of combatants) {
+        if (b.id === a.id || b.safe || b.dead) continue;
+
+        for (const bd of b.buildings) {
+          const dx = s.x - bd.x;
+          const dy = s.y - bd.y;
+          const r = bd.size + COMBAT.soldier.size;
+          if (dx * dx + dy * dy <= r * r) bd.hp -= COMBAT.soldier.damage * dt;
+        }
+
+        const bx = s.x - b.x;
+        const by = s.y - b.y;
+        const br = COMBAT.player.baseRadius + COMBAT.soldier.size;
+        if (bx * bx + by * by <= br * br) b.health -= COMBAT.soldier.damage * dt;
+
+        // soldiers fight soldiers; apply once per unordered pair
+        if (a.id < b.id) {
+          for (const en of b.soldiers) {
+            const dx = s.x - en.x;
+            const dy = s.y - en.y;
+            const r = COMBAT.soldier.size * 2;
+            if (dx * dx + dy * dy <= r * r) {
+              s.hp -= COMBAT.soldier.damage * dt;
+              en.hp -= COMBAT.soldier.damage * dt;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // base defends itself: hits enemy soldiers in attack range
+  for (const a of combatants) {
+    if (a.safe) continue;
+    const r = COMBAT.player.attackRange;
+    for (const b of combatants) {
+      if (b.id === a.id || b.safe) continue;
+      for (const en of b.soldiers) {
+        const dx = en.x - a.x;
+        const dy = en.y - a.y;
+        if (dx * dx + dy * dy <= r * r) en.hp -= COMBAT.player.damage * dt;
+      }
+    }
+  }
+
+  // resolve deaths
+  for (const p of players.values()) {
+    if (p.dead) continue;
+    for (let i = p.soldiers.length - 1; i >= 0; i--) {
+      if (p.soldiers[i].hp <= 0) {
+        killUnit(p, p.soldiers[i].uid);
+        p.soldiers.splice(i, 1);
+      }
+    }
+    for (let i = p.buildings.length - 1; i >= 0; i--) {
+      if (p.buildings[i].hp <= 0) {
+        killUnit(p, p.buildings[i].uid);
+        p.buildings.splice(i, 1);
+      }
+    }
+    if (p.health <= 0) killPlayer(p);
+  }
+}
+
+/* ---------- broadcasting ---------- */
+
+function broadcastToAll() {
+  const now = Date.now();
+
+  // safe zones expire on their own if space was never pressed
+  for (const p of players.values()) {
+    if (!p.pvp && now >= p.safeUntil) p.safe = false;
+  }
+
+  combatTick(CONFIG.broadcastMs / 1000);
+
+  const payload = {
+    type: "update",
+    players: [...players.values()].map(snapshot),
+  };
+
+  for (const p of players.values()) send(p.ws, payload);
+}
+
+function send(ws, obj) {
+  if (ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+/* ---------- static file server ---------- */
+
+function serveStatic(req, res) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+  } catch {
+    res.writeHead(400);
+    res.end();
+    return;
+  }
+
+  if (pathname === "/") pathname = "/index.html";
+
+  const filePath = path.normalize(path.join(ROOT, pathname));
+  if (!filePath.startsWith(ROOT + path.sep)) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
+
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404);
+      res.end("not found");
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": MIME[path.extname(filePath).toLowerCase()] || "application/octet-stream",
+    });
+    res.end(data);
+  });
+}
+
+/* ---------- start / export ---------- */
+
+function startServer(port = CONFIG.port) {
+  const server = http.createServer(serveStatic);
+  const wss = new WebSocketServer({ server });
+
+  wss.on("connection", onConnection);
+
+  const timer = setInterval(broadcastToAll, CONFIG.broadcastMs);
+
+  server.listen(port, () => {
+    console.log(`Blobl.io server on http://localhost:${port}`);
+    console.log(`Open several tabs to test multiplayer (no player limit).`);
+  });
+
+  return {
+    server,
+    wss,
+    stop: () => {
+      clearInterval(timer);
+      for (const p of players.values()) {
+        try {
+          p.ws.close();
+        } catch {}
+      }
+      players.clear();
+      try {
+        wss.close();
+        server.close();
+      } catch {}
+    },
+  };
+}
+
+module.exports = { startServer, CONFIG };
+
+if (require.main === module) startServer();

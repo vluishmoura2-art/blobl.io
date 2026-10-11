@@ -1,0 +1,399 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0b1220;
+}
+
+#canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- Tool buttons (lower-left) ---------- */
+#wall-button,
+#turret-button,
+#generator-button,
+#house-button,
+#sniper-button,
+#tent-button,
+#swap-button,
+#delete-button {
+  position: fixed;
+  left: 20px;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: #9aa3b0; /* gray square */
+  border: 3px solid #6b788c;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+#wall-button {
+  bottom: 20px;
+}
+
+#turret-button {
+  bottom: 96px; /* stacked above the wall button */
+}
+
+#generator-button {
+  bottom: 172px; /* stacked above the turret button */
+}
+
+#house-button {
+  bottom: 248px; /* stacked above the generator button */
+}
+
+#sniper-button {
+  bottom: 324px; /* stacked above the house button */
+}
+
+#tent-button {
+  bottom: 400px; /* stacked above the sniper button */
+}
+
+#swap-button {
+  bottom: 476px; /* stacked above the tent button */
+}
+
+#delete-button {
+  bottom: 552px; /* stacked above the swap button */
+}
+
+#wall-button:hover,
+#turret-button:hover,
+#generator-button:hover,
+#house-button:hover,
+#sniper-button:hover,
+#tent-button:hover,
+#swap-button:hover,
+#delete-button:hover {
+  background: #adb6c2;
+}
+
+#wall-button:active,
+#turret-button:active,
+#generator-button:active,
+#house-button:active,
+#sniper-button:active,
+#tent-button:active,
+#swap-button:active,
+#delete-button:active {
+  transform: scale(0.96);
+}
+
+/* Selected state (tool active) */
+#wall-button.selected,
+#turret-button.selected,
+#generator-button.selected,
+#house-button.selected,
+#sniper-button.selected,
+#tent-button.selected,
+#swap-button.selected,
+#delete-button.selected {
+  background: #d7dde6;
+  border-color: #000000;
+}
+
+#wall-button:focus-visible,
+#turret-button:focus-visible,
+#generator-button:focus-visible,
+#house-button:focus-visible,
+#sniper-button:focus-visible,
+#tent-button:focus-visible,
+#swap-button:focus-visible,
+#delete-button:focus-visible {
+  outline: 3px solid #000000;
+  outline-offset: 2px;
+}
+
+#wall-icon,
+#turret-icon,
+#generator-icon,
+#house-icon,
+#sniper-icon,
+#tent-icon,
+#swap-icon,
+#delete-icon {
+  display: block;
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+}
+
+/* ---------- Power readout (looks like the tool buttons, but is not one) ---------- */
+#power-box {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: #9aa3b0; /* same gray as the wall button */
+  border: 3px solid #6b788c;
+  border-radius: 8px;
+  color: #ffffff;
+  text-align: center;
+  line-height: 1.1;
+  user-select: none;
+  pointer-events: none; /* not a button */
+}
+
+#power-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+#power-value {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ---------- Leaderboard (top-right) ---------- */
+#leaderboard {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 190px;
+  padding: 10px;
+  background: rgba(155, 163, 176, 0.92);
+  border: 3px solid #6b788c;
+  border-radius: 8px;
+  color: #0b1220;
+  font: 13px/1.4 system-ui, sans-serif;
+  user-select: none;
+  pointer-events: none;
+}
+
+#leaderboard-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-bottom: 2px solid #6b788c;
+  padding-bottom: 4px;
+}
+
+#leaderboard-list {
+  margin-top: 6px;
+}
+
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.lb-row.you {
+  font-weight: 700;
+}
+
+.lb-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.lb-power {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+#connection-status {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #2b3340;
+  border-top: 1px solid #6b788c;
+  padding-top: 4px;
+}
+
+#mp-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #2b3340;
+  border-top: 1px solid #6b788c;
+  padding-top: 4px;
+}
+
+.lb-row.dead {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+/* ---------- Eliminated overlay ---------- */
+#eliminated {
+  position: fixed;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(11, 18, 32, 0.82);
+  color: #ffffff;
+  user-select: none;
+  pointer-events: none;
+}
+
+#eliminated.show {
+  display: flex;
+}
+
+#eliminated-title {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  color: #ff4b4b;
+  text-shadow: 0 0 18px rgba(255, 75, 75, 0.55);
+}
+
+#eliminated-sub {
+  font-size: 15px;
+  color: #c4cede;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ---------- Main menu (responsive, gate-keeps the game) ---------- */
+#menu {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(28px, 7vh, 56px);
+  background: #ffffff;
+  padding: 24px;
+  user-select: none;
+}
+
+#menu.hidden {
+  display: none;
+}
+
+#menu-title {
+  font-family: "Trebuchet MS", system-ui, sans-serif;
+  font-size: clamp(60px, 13vw, 150px);
+  font-weight: 800;
+  letter-spacing: 2px;
+  line-height: 0.95;
+  color: #ffffff; /* white letters on the white background */
+  text-shadow: 0 3px 0 #6b788c, 0 10px 26px rgba(11, 18, 32, 0.28);
+  text-align: center;
+}
+
+#menu-title .io {
+  color: #9aa3b0;
+  text-shadow: 0 10px 26px rgba(11, 18, 32, 0.18);
+}
+
+#menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(360px, 82vw);
+}
+
+#menu-name {
+  font-size: clamp(15px, 4vw, 19px);
+  font-weight: 600;
+  padding: 14px 16px;
+  border: 3px solid #6b788c;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0b1220;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+#menu-name::placeholder {
+  color: #9aa3b0;
+  font-weight: 400;
+}
+
+#menu-name:focus {
+  border-color: #000000;
+}
+
+.menu-color-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: clamp(14px, 3.5vw, 16px);
+  font-weight: 700;
+  color: #2b3340;
+  cursor: pointer;
+}
+
+#menu-color {
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border: 3px solid #6b788c;
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+#menu-play {
+  font-size: clamp(18px, 4.5vw, 24px);
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #ffffff;
+  background: #e03b3b;
+  border: none;
+  border-radius: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+#menu-play:hover {
+  background: #c22f2f;
+}
+
+#menu-play:active {
+  transform: scale(0.98);
+}
+
+@media (max-width: 520px) {
+  #menu {
+    gap: 28px;
+  }
+
+  #menu-title {
+    letter-spacing: 0;
+  }
+
+  #menu-form {
+    width: min(320px, 92vw);
+  }
+}
