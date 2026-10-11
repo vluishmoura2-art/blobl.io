@@ -45,8 +45,8 @@ const STYLE = {
 
   grid: {
     size: 50, // spacing between grid lines
-    color: "#ccd2db", // gray grid lines
-    lineWidth: 1,
+    color: "#dde3ec", // soft, light grid so it doesn't fight the action
+    lineWidth: 0.8,
   },
 
   area: {
@@ -67,8 +67,9 @@ const PLACE = {
   startSize: 100, // base radius (server value; inferred)
   buildRange: 275, // max build distance from base (server value; inferred)
   epsilon: 0.15, // exact fudge factor used by game.js
+  gap: 8, // fixed breathing room so orbitals don't kiss the base rim
 
-  validFill: "rgba(120, 128, 140, 0.20)", // gray ghost (placeable)
+  validFill: "rgba(120, 128, 140, 0.26)", // gray ghost (placeable)
   invalidFill: "rgba(255, 0, 0, 0.12)", // red ghost (overlap)
   indicator: "rgba(0, 0, 0, 0.08)", // build-limit ring color (indicatorColor)
   dashed: [55, 12], // dash pattern used by Bloble for its rings
@@ -266,19 +267,19 @@ function resolvePlacement(building, worldX, worldY) {
   const dir = Math.atan2(dy, dx);
   let dist = Math.hypot(dx, dy);
 
-  const { startSize, buildRange, epsilon } = PLACE;
+  const { startSize, buildRange, epsilon, gap } = PLACE;
 
   if (building.type === 0) {
-    if (dist - building.size < startSize) {
-      dist = building.size + startSize;
+    if (dist - building.size < startSize + gap) {
+      dist = building.size + startSize + gap;
     } else if (dist + building.size > buildRange - epsilon) {
       dist = buildRange - building.size - epsilon;
     }
   } else if (building.type === 2) {
     dist = building.size + buildRange;
   } else if (building.type === 3) {
-    if (dist - building.size < startSize) {
-      dist = building.size + startSize;
+    if (dist - building.size < startSize + gap) {
+      dist = building.size + startSize + gap;
     } else if (dist + building.size > buildRange + 2 * building.size) {
       dist = buildRange + building.size;
     }
@@ -301,12 +302,14 @@ function placementValid(x, y, size) {
   return true;
 }
 
-/* The ghost the player is currently aiming (or null). */
+/* The ghost the player is currently aiming (or null). The aim point is eased
+   each frame (see updateFx), so the preview trails the cursor elastically. */
 function currentGhost(w, h) {
   if (placement.active === null || placement.mouseX === null) return null;
 
   const building = BUILDINGS[placement.active];
-  const world = screenToWorld(placement.mouseX, placement.mouseY, w, h);
+  const world =
+    FX.aim && FX.aim.x != null ? FX.aim : screenToWorld(placement.mouseX, placement.mouseY, w, h);
   const pos = resolvePlacement(building, world.x, world.y);
 
   return {
@@ -505,8 +508,207 @@ function drawObjectHp(x, y, w, hp, max) {
   ctx.strokeRect(x0, y, w, h);
 }
 
+/* ---------- AMBIENCE (background effects) ---------- */
+/* Floating bubbles + a slowly drifting gradient so the arena doesn't read as
+   a flat white form. Everything is clipped to the map and very subtle. */
+const FX = {
+  particles: [],
+  trail: [], // wake particles streaming off the base while the camera moves
+  aim: null, // spring-eased aim point for the placement ghost
+  t: 0,
+  prevCamX: null,
+  prevCamY: null,
+};
+
+function colorWithAlpha(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+}
+
+function spawnParticle() {
+  return {
+    fx: Math.random(),
+    r: 2 + Math.random() * 6,
+    speed: 7 + Math.random() * 12,
+    wobble: 0.5 + Math.random() * 1.4,
+    phase: Math.random() * Math.PI * 2,
+    alpha: 0.05 + Math.random() * 0.11,
+  };
+}
+
+function ensureParticles(w, h) {
+  const target = Math.round(w * h / 52000) + 6;
+  while (FX.particles.length < target) FX.particles.push(spawnParticle());
+  if (FX.particles.length > target) FX.particles.length = target;
+}
+
+function drawAmbience(time, w, h) {
+  const t = time / 1000;
+  FX.t = t;
+  ensureParticles(w, h);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, MAP.width, MAP.height);
+  ctx.clip();
+
+  // gently drifting gradient overlay (cool tint, very low opacity)
+  const sx = w / 2 + Math.cos(t * 0.12) * w * 0.3;
+  const sy = h / 2 + Math.sin(t * 0.09) * h * 0.28;
+  const gx = camera.x + (sx - w / 2);
+  const gy = camera.y + (sy - h / 2);
+  const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(w, h) * 0.85);
+  grad.addColorStop(0, "rgba(186, 208, 240, 0.18)");
+  grad.addColorStop(0.6, "rgba(224, 234, 248, 0.07)");
+  grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(camera.x - w / 2, camera.y - h / 2, w, h);
+
+  // floating bubbles drifting up, looping forever
+  for (const p of FX.particles) {
+    const py = h + 24 - ((t * p.speed + p.phase * 40) % (h + 48));
+    const px = p.fx * w + Math.sin(t * p.wobble + p.phase * 2.3) * 14;
+    ctx.beginPath();
+    ctx.arc(camera.x + (px - w / 2), camera.y + (py - h / 2), p.r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(130, 150, 178, " + p.alpha.toFixed(3) + ")";
+    ctx.fill();
+  }
+
+  // wake particles trailing behind the moving core
+  for (const p of FX.trail) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = colorWithAlpha(BUILD_STYLE.fill, Math.max(0, p.life) * 0.26);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/* ---------- GAME FEEL (elastic aim + wake + crosshair) ---------- */
+
+/* Springs the placement ghost toward the cursor and emits wake particles
+   streaming off the base rim while the camera moves (the fixed base appears
+   to glide through the world). */
+function updateFx(dt) {
+  const { w, h } = viewSize();
+
+  if (placement.mouseX !== null) {
+    const m = screenToWorld(placement.mouseX, placement.mouseY, w, h);
+    if (!FX.aim) FX.aim = { x: m.x, y: m.y };
+    const ease = 1 - Math.pow(0.001, dt); // ~14/s spring
+    FX.aim.x += (m.x - FX.aim.x) * ease;
+    FX.aim.y += (m.y - FX.aim.y) * ease;
+  }
+
+  if (FX.prevCamX === null) {
+    FX.prevCamX = camera.x;
+    FX.prevCamY = camera.y;
+    return;
+  }
+
+  const vx = camera.x - FX.prevCamX;
+  const vy = camera.y - FX.prevCamY;
+  FX.prevCamX = camera.x;
+  FX.prevCamY = camera.y;
+
+  const vmag = Math.hypot(vx, vy);
+  if (vmag > 6) {
+    const wake = Math.atan2(vy, vx); // the base's "back" faces the camera motion
+    const n = Math.min(3, 1 + Math.floor(vmag / 9));
+    for (let i = 0; i < n; i++) {
+      FX.trail.push({
+        x: PLAYER.x + Math.cos(wake) * (PLACE.startSize + 10) + (Math.random() - 0.5) * 16,
+        y: PLAYER.y + Math.sin(wake) * (PLACE.startSize + 10) + (Math.random() - 0.5) * 16,
+        vx: Math.cos(wake) * (16 + Math.random() * 30) + (Math.random() - 0.5) * 22,
+        vy: Math.sin(wake) * (16 + Math.random() * 30) + (Math.random() - 0.5) * 22,
+        r: 1.5 + Math.random() * 2.5,
+        life: 1,
+        fade: 2.4 + Math.random() * 1.6,
+      });
+    }
+  }
+
+  for (let i = FX.trail.length - 1; i >= 0; i--) {
+    const p = FX.trail[i];
+    p.life -= dt * p.fade;
+    if (p.life <= 0) {
+      FX.trail.splice(i, 1);
+      continue;
+    }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+  if (FX.trail.length > 120) FX.trail.splice(0, FX.trail.length - 120);
+}
+
+/* True when the crosshair sits on an attackable target: an enemy base, soldier
+   or building (from the relay), or one of our own buildings in delete mode. */
+function crosshairHot(worldX, worldY) {
+  if (actionMode === "delete" && buildingAt(worldX, worldY)) return true;
+
+  if (typeof net === "object" && net && net.players instanceof Map) {
+    for (const rp of net.players.values()) {
+      if (rp.id === net.id) continue;
+
+      if (Math.hypot(rp.x - worldX, rp.y - worldY) <= PLACE.startSize + 6) return true;
+      if (Array.isArray(rp.soldiers)) {
+        for (const s of rp.soldiers) {
+          if (Math.hypot(s.x - worldX, s.y - worldY) <= SOLDIER.size + 6) return true;
+        }
+      }
+      if (Array.isArray(rp.buildings)) {
+        for (const b of rp.buildings) {
+          const bd = BUILDINGS[b.b];
+          if (bd && Math.hypot(b.x - worldX, b.y - worldY) <= (bd.size || 20) + 6) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/* Stylized reticle at the cursor: thin ring, diagonal ticks and a glowing
+   center dot. Turns red when it's over an enemy or a delete target. */
+function drawCrosshair(w, h) {
+  if (placement.mouseX === null) return;
+
+  const world = screenToWorld(placement.mouseX, placement.mouseY, w, h);
+  const hot = crosshairHot(world.x, world.y);
+  const rgb = hot ? "255, 84, 84" : "236, 241, 249";
+  const ringR = 9;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(" + rgb + ", 0.9)";
+  ctx.shadowColor = "rgba(" + rgb + ", 0.9)";
+  ctx.shadowBlur = hot ? 10 : 5;
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.arc(world.x, world.y, ringR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.lineWidth = 1.5;
+  const t0 = ringR + 1;
+  const t1 = ringR + 7;
+  for (let i = 0; i < 4; i++) {
+    const a = i * (Math.PI / 2) + Math.PI / 4;
+    ctx.beginPath();
+    ctx.moveTo(world.x + Math.cos(a) * t0, world.y + Math.sin(a) * t0);
+    ctx.lineTo(world.x + Math.cos(a) * t1, world.y + Math.sin(a) * t1);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = hot ? "rgba(255, 96, 96, 0.95)" : "rgba(244, 248, 252, 0.95)";
+  ctx.beginPath();
+  ctx.arc(world.x, world.y, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 /* ---------- DRAW ---------- */
-function draw() {
+function draw(time) {
   const dpr = window.devicePixelRatio || 1;
   const { w, h } = viewSize();
 
@@ -525,6 +727,7 @@ function draw() {
 
   drawMap();
   drawGrid();
+  drawAmbience(time, w, h);
   if (typeof drawRemotePlayers === "function") drawRemotePlayers();
   drawArea(w, h);
   drawRangeIndicators();
@@ -532,6 +735,7 @@ function draw() {
   drawBuildings();
   drawSoldiers();
   drawGhost(ghost);
+  drawCrosshair(w, h);
 
   ctx.restore();
 }
@@ -571,16 +775,21 @@ function drawGrid() {
   ctx.restore();
 }
 
-/* Gray circular "area" border around the play field */
+/* Gray circular "area" border around the play field (soft pulsing glow) */
 function drawArea(w, h) {
   const { margin, border, borderWidth } = STYLE.area;
   const r = Math.min(w, h) / 2 - margin;
+  const pulse = 0.5 + 0.5 * Math.sin(FX.t * 1.1);
 
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, r, 0, Math.PI * 2);
+  ctx.save();
+  ctx.shadowColor = border;
+  ctx.shadowBlur = 10 + 6 * pulse;
   ctx.lineWidth = borderWidth;
   ctx.strokeStyle = border;
   ctx.stroke();
+  ctx.restore();
 }
 
 /* Bloble-style dotted rings: base edge (startSize) + build limit (buildRange) */
@@ -601,10 +810,26 @@ function drawRangeIndicators() {
   ctx.restore();
 }
 
-/* Red base circle (radius = Bloble startSize) */
+/* Red base circle (radius = Bloble startSize) with a soft pulsing aura */
 function drawBase() {
   const { fill, border, borderWidth } = STYLE.circle;
+  const t = FX.t; // seconds, shared with the ambience pass
+  const pulse = 0.5 + 0.5 * Math.sin(t * 2);
 
+  // glowing aura behind the base
+  const glowR = PLACE.startSize * 1.5 + 12 * pulse;
+  const aura = ctx.createRadialGradient(PLAYER.x, PLAYER.y, PLACE.startSize * 0.55, PLAYER.x, PLAYER.y, glowR);
+  aura.addColorStop(0, colorWithAlpha(fill, 0.22 + 0.08 * pulse));
+  aura.addColorStop(1, colorWithAlpha(fill, 0));
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(PLAYER.x, PLAYER.y, glowR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // the circle itself, with a soft outer glow that breathes
+  ctx.save();
+  ctx.shadowColor = fill;
+  ctx.shadowBlur = 16 + 8 * pulse;
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, PLACE.startSize, 0, Math.PI * 2);
   ctx.fillStyle = fill;
@@ -613,6 +838,7 @@ function drawBase() {
   ctx.lineWidth = borderWidth;
   ctx.strokeStyle = border;
   ctx.stroke();
+  ctx.restore();
 
   if (state.playerHp !== undefined) {
     drawObjectHp(PLAYER.x, PLAYER.y - PLACE.startSize - 12, PLACE.startSize * 1.8, state.playerHp, COMBAT.player.health);
@@ -682,20 +908,28 @@ function paintAgon(g, cx, cy, radius, sides, fill, border, lineWidth) {
 }
 
 /* Polygon building: colored body + gray border, with an inner gray shape.
-   `fill` is overridable (per-player color in multiplayer). */
-function paintAgonBuilding(g, cx, cy, size, sides, fill) {
+   `fill` is overridable (per-player color in multiplayer). `rotate` turns the
+   whole shape so a vertex follows the radius (orbital alignment). */
+function paintAgonBuilding(g, cx, cy, size, sides, fill, rotate) {
+  g.save();
+  if (rotate) {
+    g.translate(cx, cy);
+    g.rotate(rotate);
+    g.translate(-cx, -cy);
+  }
   paintAgon(g, cx, cy, size, sides, fill || BUILD_STYLE.fill, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
   paintAgon(g, cx, cy, size * 0.55, sides, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
+  g.restore();
 }
 
 /* Generator: colored hexagon with an inner gray hexagon */
-function paintGenerator(g, cx, cy, size, fill) {
-  paintAgonBuilding(g, cx, cy, size, 6, fill);
+function paintGenerator(g, cx, cy, size, fill, rotate) {
+  paintAgonBuilding(g, cx, cy, size, 6, fill, rotate);
 }
 
 /* House: same design as the generator, but a pentagon */
-function paintHouse(g, cx, cy, size, fill) {
-  paintAgonBuilding(g, cx, cy, size, 5, fill);
+function paintHouse(g, cx, cy, size, fill, rotate) {
+  paintAgonBuilding(g, cx, cy, size, 5, fill, rotate);
 }
 
 /* Square centered on (cx, cy); `half` is the half-width (Bloble's size) */
@@ -715,22 +949,51 @@ function paintSquare(g, cx, cy, half, fill, border, lineWidth) {
 }
 
 /* Tent: colored square with an inner gray square (Bloble barracks detail) */
-function paintTent(g, cx, cy, size, fill) {
+function paintTent(g, cx, cy, size, fill, rotate) {
+  g.save();
+  if (rotate) {
+    g.translate(cx, cy);
+    g.rotate(rotate);
+    g.translate(-cx, -cy);
+  }
   paintSquare(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
   paintSquare(g, cx, cy, size * 0.55, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
+  g.restore();
 }
 
-/* Placed buildings: walls are plain circles, turrets get the pipe */
+/* Radial angle from the base center to a building, so every orbital follows
+   the radius (recomputed live, so swaps keep them radially aligned) */
+function buildingDir(p) {
+  return Math.atan2(p.y - PLAYER.y, p.x - PLAYER.x);
+}
+
+/* Placed buildings: walls are plain circles, turrets get the pipe.
+   A faint rod links each orbital to the base so they read as coupled modules. */
 function drawBuildings() {
+  // orbital connector rods: base rim -> building center
+  const rodColor = colorWithAlpha(BUILD_STYLE.fill, 0.1);
+  const rimX = (a) => PLAYER.x + Math.cos(a) * (PLACE.startSize + 3);
+  const rimY = (a) => PLAYER.y + Math.sin(a) * (PLACE.startSize + 3);
+  ctx.lineWidth = 2;
   for (const p of placement.placed) {
+    const a = buildingDir(p);
+    ctx.beginPath();
+    ctx.moveTo(rimX(a), rimY(a));
+    ctx.lineTo(p.x, p.y);
+    ctx.strokeStyle = rodColor;
+    ctx.stroke();
+  }
+
+  for (const p of placement.placed) {
+    const dir = buildingDir(p);
     if (p.building.design === "turret") {
-      paintTurret(ctx, p.x, p.y, p.building.size, p.dir, p.building.barrel);
+      paintTurret(ctx, p.x, p.y, p.building.size, dir, p.building.barrel);
     } else if (p.building.design === "generator") {
-      paintGenerator(ctx, p.x, p.y, p.building.size);
+      paintGenerator(ctx, p.x, p.y, p.building.size, undefined, dir);
     } else if (p.building.design === "tent") {
-      paintTent(ctx, p.x, p.y, p.building.size);
+      paintTent(ctx, p.x, p.y, p.building.size, undefined, dir);
     } else if (p.building.design === "house") {
-      paintHouse(ctx, p.x, p.y, p.building.size);
+      paintHouse(ctx, p.x, p.y, p.building.size, undefined, dir);
     } else {
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.building.size, 0, Math.PI * 2);
@@ -784,8 +1047,9 @@ function loop(time) {
   updatePower(dt);
   updateTents(dt);
   updateSoldiers(dt);
+  updateFx(dt);
   if (typeof netUpdate === "function") netUpdate(dt);
-  draw();
+  draw(time);
 
   requestAnimationFrame(loop);
 }
@@ -1073,7 +1337,7 @@ function drawSwapIcon() {
 
   const { ictx } = icon;
   ictx.lineWidth = 3.5;
-  ictx.strokeStyle = "#2b3340";
+  ictx.strokeStyle = "#e9eef6";
   ictx.lineCap = "round";
   ictx.lineJoin = "round";
 
@@ -1100,7 +1364,7 @@ function drawDeleteIcon() {
 
   const { ictx } = icon;
   ictx.lineWidth = 3;
-  ictx.strokeStyle = "#2b3340";
+  ictx.strokeStyle = "#e9eef6";
   ictx.lineCap = "round";
   ictx.lineJoin = "round";
 
@@ -1170,6 +1434,9 @@ function setPlayerColor(hex) {
   BUILD_STYLE.fill = hex;
   STYLE.circle.fill = hex;
   STYLE.circle.border = lightenHex(hex, 45);
+
+  // let the CSS HUD mirror the chosen color (selected buttons, focus rings, ...)
+  document.documentElement.style.setProperty("--player-color", hex);
 
   // tool icons use the player color too
   drawWallIcon();

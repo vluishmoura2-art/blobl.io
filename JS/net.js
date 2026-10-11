@@ -233,6 +233,9 @@ function drawRemotePlayer(rp) {
   const color = rp.color || "#e03b3b";
 
   // base circle
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 16;
   ctx.beginPath();
   ctx.arc(rp.x, rp.y, PLACE.startSize, 0, Math.PI * 2);
   ctx.fillStyle = color;
@@ -240,6 +243,7 @@ function drawRemotePlayer(rp) {
   ctx.lineWidth = 8;
   ctx.strokeStyle = shadeColor(color, 45);
   ctx.stroke();
+  ctx.restore();
 
   if (typeof rp.health === "number") {
     drawObjectHp(rp.x, rp.y - PLACE.startSize - 12, PLACE.startSize * 1.8, rp.health, COMBAT.player.health);
@@ -264,7 +268,7 @@ function drawRemotePlayer(rp) {
   if (rp.safe) drawSafeRing(rp.x, rp.y);
 
   // name tag
-  ctx.font = "600 13px system-ui, sans-serif";
+  ctx.font = "700 13px 'Nunito', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   ctx.lineWidth = 3;
@@ -315,7 +319,7 @@ function drawSafeRing(x, y) {
 }
 
 function drawStatusLabel(x, y, text, color) {
-  ctx.font = "700 14px system-ui, sans-serif";
+  ctx.font = "800 14px 'Nunito', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   ctx.lineWidth = 3;

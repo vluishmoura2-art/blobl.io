@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Blobl.io - canvas rendering base." />
   <title>Blobl.io</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="CSS/style.css" />
 </head>
 <body>
@@ -61,14 +64,15 @@
 
   <div id="menu">
     <h1 id="menu-title">BLOBL<span class="io">.IO</span></h1>
-    <form id="menu-form" autocomplete="off">
-      <input id="menu-name" type="text" maxlength="16" placeholder="Captain name" value="Player" aria-label="Player name" spellcheck="false" />
-      <label class="menu-color-row" for="menu-color">
-        <span>Base color</span>
-        <input id="menu-color" type="color" value="#e03b3b" aria-label="Base color" />
-      </label>
+    <div id="menu-card">
+      <div class="menu-field">
+        <input id="menu-name" type="text" maxlength="16" placeholder="Captain name" value="Player" aria-label="Player name" spellcheck="false" autocomplete="off" />
+        <label class="menu-swatch" for="menu-color" title="Base color">
+          <input id="menu-color" type="color" value="#e03b3b" aria-label="Base color" />
+        </label>
+      </div>
       <button id="menu-play" type="button">set sail</button>
-    </form>
+    </div>
   </div>
 
   <script src="shared/combat.js" defer></script>
