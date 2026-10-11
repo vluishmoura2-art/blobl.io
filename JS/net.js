@@ -14,7 +14,13 @@
    working as the existing single-player build.
    ========================================================= */
 
-const HOST = (location.protocol === "https:" ? "wss://" : "ws://") + (location.hostname || "localhost") + ":" + (window.BLOB_PORT || 8080);
+/* On the public site (https) the WS goes to the same host on the default secure
+   port (443) - Render proxies wss to the app's internal PORT. Only the local
+   http dev server talks to node on :8080 directly. */
+const HOST =
+  (location.protocol === "https:" ? "wss://" : "ws://") +
+  (location.hostname || "localhost") +
+  (location.protocol === "https:" ? "" : ":" + (window.BLOB_PORT || 8080));
 
 const net = {
   id: null,
