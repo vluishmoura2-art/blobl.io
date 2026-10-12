@@ -124,7 +124,12 @@ function reconcileSelf(me) {
   net.mySafeRemaining = Math.max(0, me.safeUntil - Date.now());
 
   if (typeof me.health === "number") {
+    const prev = state.playerHp;
     state.playerHp = Math.max(0, Math.min(me.health, COMBAT.player.health));
+    if (prev - state.playerHp > 0.5) {
+      if (typeof Sfx !== "undefined") Sfx.play("hit", 0.6);
+      if (typeof addShake === "function") addShake(3);
+    }
   }
 
   if (me.dead && !net.dead) {
@@ -172,6 +177,12 @@ function reconcileSelf(me) {
 function showEliminated() {
   const el = document.getElementById("eliminated");
   if (el) el.classList.add("show");
+  if (typeof Sfx !== "undefined") Sfx.play("eliminated");
+  if (typeof addShake === "function") addShake(6);
+  if (typeof burst === "function") {
+    burst(PLAYER.x, PLAYER.y, PROFILE ? PROFILE.color : "#e03b3b", 30, 200);
+    burst(PLAYER.x, PLAYER.y, "#ffffff", 14, 120);
+  }
   if (typeof draw === "function") draw();
 }
 
@@ -210,6 +221,9 @@ function onSpaceForPvp() {
   net.myPvp = true;
   net.mySafe = false;
   netSend({ type: "pvp" });
+  if (typeof Sfx !== "undefined") Sfx.play("pvp");
+  if (typeof addShake === "function") addShake(2.5);
+  if (typeof burst === "function") burst(PLAYER.x, PLAYER.y, PROFILE ? PROFILE.color : "#e03b3b", 16, 150);
   draw();
 }
 
@@ -237,11 +251,13 @@ function drawRemotePlayers() {
 
 function drawRemotePlayer(rp) {
   const color = rp.color || "#e03b3b";
+  const t = performance.now() / 1000;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 2.2 + (rp.id || 0) * 7);
 
   // base circle
   ctx.save();
   ctx.shadowColor = color;
-  ctx.shadowBlur = 16;
+  ctx.shadowBlur = 14 + 8 * pulse;
   ctx.beginPath();
   ctx.arc(rp.x, rp.y, PLACE.startSize, 0, Math.PI * 2);
   ctx.fillStyle = color;

@@ -275,6 +275,32 @@ label {
   padding-top: 4px;
 }
 
+#audio-state {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9fd6a8;
+}
+
+/* HUD panels ease in once on load instead of popping into place */
+#leaderboard,
+#power-box {
+  animation: hud-pop-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+
+@keyframes hud-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .lb-row.dead {
   opacity: 0.45;
   text-decoration: line-through;
@@ -297,6 +323,18 @@ label {
 
 #eliminated.show {
   display: flex;
+  animation: eliminated-in 0.4s ease-out;
+}
+
+@keyframes eliminated-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 #eliminated-title {
@@ -475,6 +513,15 @@ label {
 #menu-play:active {
   transform: translateY(4px);
   box-shadow: 0 1px 0 #b02a2a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #leaderboard,
+  #power-box,
+  #eliminated.show,
+  #menu {
+    animation: none;
+  }
 }
 
 @media (max-width: 520px) {

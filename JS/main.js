@@ -325,12 +325,20 @@ function placeBuilding(screenX, screenY, w, h) {
   if (placement.active === null) return;
 
   const building = BUILDINGS[placement.active];
-  if (!canAfford(building)) return;
+  if (!canAfford(building)) {
+    if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
+    addShake(1.2);
+    return;
+  }
 
   const world = screenToWorld(screenX, screenY, w, h);
   const pos = resolvePlacement(building, world.x, world.y);
 
-  if (!placementValid(pos.x, pos.y, building.size)) return;
+  if (!placementValid(pos.x, pos.y, building.size)) {
+    if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
+    addShake(1.2);
+    return;
+  }
 
   placement.placed.push({
     building,
@@ -339,9 +347,16 @@ function placeBuilding(screenX, screenY, w, h) {
     dir: pos.dir,
     uid: nextUid(),
     hp: building.health,
+    born: FX.t, // spawn timer drives the squash-and-stretch pop
   });
   state.power -= building.cost;
   refreshPowerUI();
+  addShake(2.5);
+  burst(pos.x, pos.y, BUILD_STYLE.fill, 14, 130);
+  if (typeof Sfx !== "undefined") {
+    Sfx.play("place");
+    setTimeout(() => Sfx.play("connect", 0.4), 130);
+  }
 }
 
 /* ---------- POWER / COST ---------- */
@@ -514,6 +529,9 @@ function drawObjectHp(x, y, w, hp, max) {
 const FX = {
   particles: [],
   trail: [], // wake particles streaming off the base while the camera moves
+  bursts: [], // impact particles on place / swap / delete (the "snap" juice)
+  shake: 0, // remaining screen tremor magnitude (world px)
+  ghostAge: 0, // seconds since a tool was selected (ghost fade-in)
   aim: null, // spring-eased aim point for the placement ghost
   t: 0,
   prevCamX: null,
@@ -523,6 +541,31 @@ const FX = {
 function colorWithAlpha(hex, a) {
   const n = parseInt(hex.slice(1), 16);
   return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+}
+
+/* A short screen tremor. Each frame draw() offsets the world by a random
+   amount times the remaining magnitude, which decays in updateFx. */
+function addShake(mag) {
+  FX.shake = Math.max(FX.shake, mag);
+}
+
+/* Radial burst of short-lived particles - the "snap" impact effect. */
+function burst(x, y, color, count, speed) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = speed * (0.3 + Math.random() * 0.7);
+    FX.bursts.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      r: 1.5 + Math.random() * 2.5,
+      life: 1,
+      fade: 2.2 + Math.random() * 1.6,
+      color,
+    });
+  }
+  if (FX.bursts.length > 240) FX.bursts.splice(0, FX.bursts.length - 240);
 }
 
 function spawnParticle() {
@@ -582,6 +625,16 @@ function drawAmbience(time, w, h) {
     ctx.fill();
   }
 
+  // impact bursts: the "snap" flashes from placing / swapping / deleting
+  for (const p of FX.bursts) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
   ctx.restore();
 }
 
@@ -592,6 +645,20 @@ function drawAmbience(time, w, h) {
    to glide through the world). */
 function updateFx(dt) {
   const { w, h } = viewSize();
+
+  FX.shake = Math.max(0, FX.shake - dt * 26);
+  if (FX.ghostAge < 2) FX.ghostAge += dt;
+
+  for (let i = FX.bursts.length - 1; i >= 0; i--) {
+    const p = FX.bursts[i];
+    p.life -= dt * p.fade;
+    if (p.life <= 0) {
+      FX.bursts.splice(i, 1);
+      continue;
+    }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
 
   if (placement.mouseX !== null) {
     const m = screenToWorld(placement.mouseX, placement.mouseY, w, h);
@@ -721,9 +788,13 @@ function draw(time = performance.now()) {
 
   const ghost = currentGhost(w, h);
 
+  // screen tremor: the world jitters but the reticle stays glued to the mouse
+  const sx = Math.round((Math.random() * 2 - 1) * FX.shake);
+  const sy = Math.round((Math.random() * 2 - 1) * FX.shake);
+
   // World space: everything below is drawn relative to the camera
   ctx.save();
-  ctx.translate(w / 2 - camera.x, h / 2 - camera.y);
+  ctx.translate(w / 2 - camera.x + sx, h / 2 - camera.y + sy);
 
   drawMap();
   drawGrid();
@@ -735,7 +806,10 @@ function draw(time = performance.now()) {
   drawBuildings();
   drawSoldiers();
   drawGhost(ghost);
+  ctx.save();
+  ctx.translate(-sx, -sy);
   drawCrosshair(w, h);
+  ctx.restore();
 
   ctx.restore();
 }
@@ -814,22 +888,34 @@ function drawRangeIndicators() {
 function drawBase() {
   const { fill, border, borderWidth } = STYLE.circle;
   const t = FX.t; // seconds, shared with the ambience pass
-  const pulse = 0.5 + 0.5 * Math.sin(t * 2);
+  // two detuned sine waves so the base never reads as a metronome
+  const b1 = 0.5 + 0.5 * Math.sin(t * 2.4);
+  const b2 = 0.5 + 0.5 * Math.sin(t * 1.3 + 1.9);
 
-  // glowing aura behind the base
-  const glowR = PLACE.startSize * 1.5 + 12 * pulse;
+  // breathing aura behind the base
+  const glowR = PLACE.startSize * (1.45 + 0.08 * b1);
   const aura = ctx.createRadialGradient(PLAYER.x, PLAYER.y, PLACE.startSize * 0.55, PLAYER.x, PLAYER.y, glowR);
-  aura.addColorStop(0, colorWithAlpha(fill, 0.22 + 0.08 * pulse));
+  aura.addColorStop(0, colorWithAlpha(fill, 0.18 + 0.1 * b1 + 0.05 * b2));
   aura.addColorStop(1, colorWithAlpha(fill, 0));
   ctx.fillStyle = aura;
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, glowR, 0, Math.PI * 2);
   ctx.fill();
 
+  // traveling heartbeat ring: expands out and fades once every 3s
+  const ph = (t % 3) / 3;
+  ctx.save();
+  ctx.strokeStyle = colorWithAlpha(fill, 0.55 * (1 - ph));
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(PLAYER.x, PLAYER.y, PLACE.startSize * (1.04 + 0.42 * ph), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
   // the circle itself, with a soft outer glow that breathes
   ctx.save();
   ctx.shadowColor = fill;
-  ctx.shadowBlur = 16 + 8 * pulse;
+  ctx.shadowBlur = 14 + 12 * b1 + 4 * b2;
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, PLACE.startSize, 0, Math.PI * 2);
   ctx.fillStyle = fill;
@@ -970,33 +1056,42 @@ function buildingDir(p) {
 /* Placed buildings: walls are plain circles, turrets get the pipe.
    A faint rod links each orbital to the base so they read as coupled modules. */
 function drawBuildings() {
-  // orbital connector rods: base rim -> building center
-  const rodColor = colorWithAlpha(BUILD_STYLE.fill, 0.1);
+  // orbital connector rods: base rim -> building edge (they grow out on spawn)
   const rimX = (a) => PLAYER.x + Math.cos(a) * (PLACE.startSize + 3);
   const rimY = (a) => PLAYER.y + Math.sin(a) * (PLACE.startSize + 3);
   ctx.lineWidth = 2;
   for (const p of placement.placed) {
     const a = buildingDir(p);
+    const age = (p.born === undefined ? 1 : FX.t - p.born) || 0;
+    const grow = Math.min(1, age * 4.2);
+    const ex = p.x - (p.x - rimX(a)) * (1 - grow);
+    const ey = p.y - (p.y - rimY(a)) * (1 - grow);
     ctx.beginPath();
     ctx.moveTo(rimX(a), rimY(a));
-    ctx.lineTo(p.x, p.y);
-    ctx.strokeStyle = rodColor;
+    ctx.lineTo(ex, ey);
+    ctx.strokeStyle = colorWithAlpha(BUILD_STYLE.fill, 0.1 * Math.min(1, age * 3.2));
     ctx.stroke();
   }
 
   for (const p of placement.placed) {
     const dir = buildingDir(p);
+    // squash-and-stretch: sizes overshoot ~28% then fall back within ~0.3s
+    const age = (p.born === undefined ? 1 : FX.t - p.born) || 0;
+    const st = Math.min(1, age / 0.3);
+    const pop = 1 + 0.28 * Math.sin(st * Math.PI) * (1 - st * 0.72);
+    const s = p.building.size * pop;
+
     if (p.building.design === "turret") {
-      paintTurret(ctx, p.x, p.y, p.building.size, dir, p.building.barrel);
+      paintTurret(ctx, p.x, p.y, s, dir, p.building.barrel);
     } else if (p.building.design === "generator") {
-      paintGenerator(ctx, p.x, p.y, p.building.size, undefined, dir);
+      paintGenerator(ctx, p.x, p.y, s, undefined, dir);
     } else if (p.building.design === "tent") {
-      paintTent(ctx, p.x, p.y, p.building.size, undefined, dir);
+      paintTent(ctx, p.x, p.y, s, undefined, dir);
     } else if (p.building.design === "house") {
-      paintHouse(ctx, p.x, p.y, p.building.size, undefined, dir);
+      paintHouse(ctx, p.x, p.y, s, undefined, dir);
     } else {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.building.size, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, s, 0, Math.PI * 2);
       ctx.fillStyle = BUILD_STYLE.fill;
       ctx.fill();
       ctx.lineWidth = BUILD_STYLE.borderWidth;
@@ -1015,6 +1110,9 @@ function drawBuildings() {
    reads the same; a faint dashed ring shows a turret's range. */
 function drawGhost(ghost) {
   if (!ghost) return;
+
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, (FX.ghostAge || 0) * 7);
 
   const b = ghost.building;
 
@@ -1036,6 +1134,7 @@ function drawGhost(ghost) {
   ctx.lineWidth = 2;
   ctx.strokeStyle = ghost.valid ? "#9aa3b0" : "#ff0000";
   ctx.stroke();
+  ctx.restore();
 }
 
 /* ---------- LOOP ---------- */
@@ -1080,6 +1179,8 @@ function toggleActionMode(mode) {
     drag.active = false;
     drag.building = null;
   }
+  FX.ghostAge = 0;
+  if (typeof Sfx !== "undefined") Sfx.play("click", 0.7);
   updateToolButtons();
   draw();
 }
@@ -1109,6 +1210,8 @@ function selectBuilding(index) {
   drag.active = false;
   drag.building = null;
   placement.active = placement.active === index ? null : index;
+  FX.ghostAge = 0;
+  if (typeof Sfx !== "undefined") Sfx.play("click", 0.7);
   updateToolButtons();
   draw();
 }
@@ -1118,6 +1221,8 @@ function deselectBuilding() {
   actionMode = null;
   drag.active = false;
   drag.building = null;
+  FX.ghostAge = 0;
+  if (typeof Sfx !== "undefined") Sfx.play("click", 0.7);
   updateToolButtons();
   draw();
 }
@@ -1217,6 +1322,10 @@ canvas.addEventListener("mouseup", (e) => {
     [p.x, target.x] = [target.x, p.x];
     [p.y, target.y] = [target.y, p.y];
     [p.dir, target.dir] = [target.dir, p.dir];
+    addShake(3.5);
+    burst(p.x, p.y, BUILD_STYLE.fill, 10, 120);
+    burst(target.x, target.y, BUILD_STYLE.fill, 10, 120);
+    if (typeof Sfx !== "undefined") Sfx.play("swap");
   }
 
   drag.active = false;
@@ -1242,6 +1351,9 @@ canvas.addEventListener("click", (e) => {
       placement.placed = placement.placed.filter((p) => p !== hit);
       state.power += hit.building.cost; // refund, so deleting is free to try
       refreshPowerUI();
+      burst(hit.x, hit.y, PIPE.color, 10, 90);
+      addShake(1.5);
+      if (typeof Sfx !== "undefined") Sfx.play("delete", 0.8);
     }
   } else if (actionMode === "swap") {
     // handled by the drag handlers
@@ -1459,6 +1571,9 @@ function startGame() {
   if (menu) menu.classList.add("hidden");
 
   setPlayerColor(colorInput ? colorInput.value : BUILD_STYLE.fill);
+
+  // the menu click counts as a gesture: audio (and music) starts here
+  if (typeof Sfx !== "undefined") Sfx.unlock();
 
   // connect to the multiplayer relay now that we know who we are
   if (typeof initNet === "function") initNet();
