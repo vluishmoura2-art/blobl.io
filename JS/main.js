@@ -1004,6 +1004,7 @@ function drawGrid() {
 function drawArea(w, h) {
   const { margin, border, borderWidth } = STYLE.area;
   const r = Math.min(w, h) / 2 - margin;
+  if (r <= 0) return; // viewport too small to draw the ring
   const pulse = 0.5 + 0.5 * Math.sin(FX.t * 1.1);
 
   ctx.beginPath();
