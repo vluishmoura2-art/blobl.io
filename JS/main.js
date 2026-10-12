@@ -957,6 +957,7 @@ function draw(time = performance.now()) {
   drawBuildings();
   drawSoldiers();
   drawGhost(ghost);
+  drawUpgradeHint(w, h);
   ctx.save();
   ctx.translate(-sx, -sy);
   drawCrosshair(w, h);
@@ -1366,6 +1367,67 @@ function drawGhost(ghost) {
   ctx.lineWidth = 2;
   ctx.strokeStyle = ghost.valid ? "#9aa3b0" : "#ff0000";
   ctx.stroke();
+  ctx.restore();
+}
+
+/* On-hover upgrade hint: with the Tent or Armory tool selected, hovering the
+   matching building shows the next tier/research and its power cost. */
+function drawUpgradeHint(w, h) {
+  if (typeof COMBAT === "undefined" || !TENT_TIERS) return;
+  if (placement.mouseX === null) return;
+  if (placement.active !== 5 && placement.active !== 6) return;
+
+  const world = screenToWorld(placement.mouseX, placement.mouseY, w, h);
+  const hit = buildingAt(world.x, world.y);
+  if (!hit) return;
+
+  let label;
+  let cost;
+  if (placement.active === 6 && hit.building.design === "tent") {
+    const next = TENT_TIERS[(hit.tier || 1) + 1];
+    if (!next) {
+      label = "Max tier";
+      cost = null;
+    } else {
+      label = next.name;
+      cost = next.cost;
+    }
+  } else if (placement.active === 5 && hit.building.design === "armory") {
+    const next = (COMBAT.armoryResearch || []).find((r) => !hasUpgrade(r.key));
+    if (!next) {
+      label = "All researched";
+      cost = null;
+    } else {
+      label = next.name;
+      cost = next.cost;
+    }
+  } else {
+    return;
+  }
+
+  const affordable = cost === null || canAffordCost(cost);
+  const text = cost === null ? label : label + "  " + cost;
+  const x = hit.x;
+  const y = hit.y - hit.building.size - 16;
+
+  ctx.save();
+  ctx.font = "bold 14px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const padX = 10;
+  const wText = ctx.measureText(text).width + padX * 2;
+  ctx.fillStyle = affordable ? "rgba(20, 26, 34, 0.82)" : "rgba(48, 18, 18, 0.82)";
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(x - wText / 2, y - 12, wText, 24, 7);
+  } else {
+    ctx.rect(x - wText / 2, y - 12, wText, 24);
+  }
+  ctx.fill();
+
+  ctx.fillStyle = affordable ? "#eaf2ff" : "#ff9b9b";
+  ctx.fillText(text, x, y);
   ctx.restore();
 }
 
