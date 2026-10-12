@@ -40,6 +40,7 @@ label {
 #generator-button,
 #house-button,
 #sniper-button,
+#armory-button,
 #tent-button,
 #swap-button,
 #delete-button {
@@ -80,16 +81,20 @@ label {
   bottom: 324px; /* stacked above the house button */
 }
 
-#tent-button {
+#armory-button {
   bottom: 400px; /* stacked above the sniper button */
 }
 
+#tent-button {
+  bottom: 476px; /* stacked above the armory button */
+}
+
 #swap-button {
-  bottom: 476px; /* stacked above the tent button */
+  bottom: 552px; /* stacked above the tent button */
 }
 
 #delete-button {
-  bottom: 552px; /* stacked above the swap button */
+  bottom: 628px; /* stacked above the swap button */
 }
 
 #wall-button:hover,
@@ -97,6 +102,7 @@ label {
 #generator-button:hover,
 #house-button:hover,
 #sniper-button:hover,
+#armory-button:hover,
 #tent-button:hover,
 #swap-button:hover,
 #delete-button:hover {
@@ -111,6 +117,7 @@ label {
 #generator-button:active,
 #house-button:active,
 #sniper-button:active,
+#armory-button:active,
 #tent-button:active,
 #swap-button:active,
 #delete-button:active {
@@ -124,6 +131,7 @@ label {
 #generator-button.selected,
 #house-button.selected,
 #sniper-button.selected,
+#armory-button.selected,
 #tent-button.selected,
 #swap-button.selected,
 #delete-button.selected {
@@ -138,6 +146,7 @@ label {
 #generator-button:focus-visible,
 #house-button:focus-visible,
 #sniper-button:focus-visible,
+#armory-button:focus-visible,
 #tent-button:focus-visible,
 #swap-button:focus-visible,
 #delete-button:focus-visible {
@@ -150,6 +159,7 @@ label {
 #generator-icon,
 #house-icon,
 #sniper-icon,
+#armory-icon,
 #tent-icon,
 #swap-icon,
 #delete-icon {

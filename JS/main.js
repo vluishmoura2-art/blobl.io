@@ -89,8 +89,8 @@ const BUILDINGS = [
   { name: "Generator", type: 0, size: 32, cost: 50, design: "generator" },
   { name: "House", type: 0, size: 30, cost: 60, design: "house" },
   { name: "Sniper Turret", type: 0, size: 32, range: 240, cost: 80, design: "turret", barrel: BARREL.sniper },
-  { name: "Armory", type: 0, size: 40, cost: 100 },
-  { name: "Tent", type: 2, size: 34, cost: 150, design: "tent" },
+  { name: "Armory", type: 0, size: 40, cost: 100, design: "armory", limit: 1 },
+  { name: "Tent", type: 2, size: 34, cost: 150, design: "tent", limit: 3 },
 ];
 
 /* Combat stats live in shared/combat.js so the server sees the same numbers.
@@ -124,7 +124,26 @@ const POWER = {
 const state = {
   power: POWER.start,
   playerHp: typeof COMBAT !== "undefined" ? COMBAT.player.health : 500,
+  upgrades: 0, // armory research bitmask (see COMBAT.upgradeFlags)
 };
+
+/* ---------- UNITS (soldiers / tanks / siege tanks) ---------- */
+/* Unit config shared with the server lives in COMBAT.units; local-only extras
+   (spawn caps, tent build limits) live here. */
+const UPGRADES = typeof COMBAT !== "undefined" ? COMBAT.upgradeFlags : { armor: 1, booster: 2, cannons: 4, cloak: 8 };
+const TENT_TIERS = typeof COMBAT !== "undefined" ? COMBAT.tents : null; // index 1..4
+const UNIT_STATS = typeof COMBAT !== "undefined" ? COMBAT.units : null;
+
+const TANK_CAP = 8; // max tanks on the field (tier-3 tents)
+const SIEGE_CAP = 4; // max siege tanks (tier-4 tents)
+
+function hasUpgrade(key) {
+  return (state.upgrades & UPGRADES[key]) !== 0;
+}
+
+function canAffordCost(cost) {
+  return state.power >= cost;
+}
 
 const placement = {
   active: null, // index into BUILDINGS, or null when nothing is selected
@@ -302,6 +321,14 @@ function placementValid(x, y, size) {
   return true;
 }
 
+/* Building-count limit (armory x1, tent x3). */
+function limitReached(building) {
+  if (!building.limit) return false;
+  let n = 0;
+  for (const p of placement.placed) if (p.building === building) n++;
+  return n >= building.limit;
+}
+
 /* The ghost the player is currently aiming (or null). The aim point is eased
    each frame (see updateFx), so the preview trails the cursor elastically. */
 function currentGhost(w, h) {
@@ -316,7 +343,8 @@ function currentGhost(w, h) {
     building,
     x: pos.x,
     y: pos.y,
-    valid: placementValid(pos.x, pos.y, building.size) && canAfford(building),
+    valid:
+      placementValid(pos.x, pos.y, building.size) && canAfford(building) && !limitReached(building),
   };
 }
 
@@ -325,6 +353,11 @@ function placeBuilding(screenX, screenY, w, h) {
   if (placement.active === null) return;
 
   const building = BUILDINGS[placement.active];
+  if (limitReached(building)) {
+    if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
+    addShake(1.2);
+    return;
+  }
   if (!canAfford(building)) {
     if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
     addShake(1.2);
@@ -348,6 +381,7 @@ function placeBuilding(screenX, screenY, w, h) {
     uid: nextUid(),
     hp: building.health,
     born: FX.t, // spawn timer drives the squash-and-stretch pop
+    tier: building.design === "tent" ? 1 : undefined, // tent upgrade tier (1..4)
   });
   state.power -= building.cost;
   refreshPowerUI();
@@ -357,6 +391,60 @@ function placeBuilding(screenX, screenY, w, h) {
     Sfx.play("place");
     setTimeout(() => Sfx.play("connect", 0.4), 130);
   }
+}
+
+/* ---------- TENT UPGRADES + ARMORY RESEARCH ---------- */
+
+/* Buying juice: the little "snap" flash + tremor shared by upgrades. */
+function purchaseFx(x, y) {
+  addShake(2.5);
+  burst(x, y, BUILD_STYLE.fill, 14, 130);
+  if (typeof Sfx !== "undefined") {
+    Sfx.play("place");
+    setTimeout(() => Sfx.play("connect", 0.4), 130);
+  }
+}
+
+function denyFx() {
+  if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
+  addShake(1.2);
+}
+
+/* With the Tent tool selected, clicking an existing tent buys its next tier:
+   greater barracks -> tank factory -> siege foundry. */
+function upgradeTent(p) {
+  if (!TENT_TIERS) return;
+  const next = TENT_TIERS[p.tier + 1];
+  if (!next) {
+    denyFx(); // already maxed out
+    return;
+  }
+  if (!canAffordCost(next.cost)) {
+    denyFx();
+    return;
+  }
+  p.tier += 1;
+  state.power -= next.cost;
+  refreshPowerUI();
+  purchaseFx(p.x, p.y);
+}
+
+/* With the Armory tool selected, clicking the armory buys the next research in
+   the fixed order: Power Armor -> Booster Engines -> Panzer Cannons -> Cloak. */
+function researchArmory(p) {
+  const next = (COMBAT.armoryResearch || []).find((r) => !hasUpgrade(r.key));
+  if (!next) {
+    denyFx(); // everything researched
+    return;
+  }
+  if (!canAffordCost(next.cost)) {
+    denyFx();
+    return;
+  }
+  state.upgrades |= UPGRADES[next.key];
+  state.power -= next.cost;
+  refreshPowerUI();
+  purchaseFx(p.x, p.y);
 }
 
 /* ---------- POWER / COST ---------- */
@@ -401,11 +489,14 @@ function soldierLimit() {
   return SOLDIER.baseLimit + SOLDIER.perHouse * countHouses();
 }
 
-function spawnSoldier(tent) {
+function spawnUnit(tent) {
+  if (!TENT_TIERS || !UNIT_STATS) return;
+  const cfg = TENT_TIERS[Math.min(tent.tier || 1, TENT_TIERS.length - 1)];
+  const stat = UNIT_STATS[cfg.unit];
   const dx = PLAYER.x - tent.x;
   const dy = PLAYER.y - tent.y;
   const len = Math.hypot(dx, dy) || 1;
-  const dist = tent.building.size + SOLDIER.size + 4; // just outside the tent
+  const dist = tent.building.size + stat.size + 4; // just outside the tent
 
   soldiers.push({
     x: tent.x + (dx / len) * dist,
@@ -417,24 +508,37 @@ function spawnSoldier(tent) {
     ox: (Math.random() * 2 - 1) * SOLDIER.spread,
     oy: (Math.random() * 2 - 1) * SOLDIER.spread,
     uid: nextUid(),
-    hp: COMBAT.soldier.health,
+    kind: cfg.unit,
+    hp: stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1),
   });
 }
 
-/* Tents produce soldiers over time, until the house-driven limit is reached */
+/* Tents produce their tier's unit over time: soldiers honor the house-driven
+   cap, while tanks and siege tanks have their own field caps. */
 function updateTents(dt) {
+  if (!TENT_TIERS) return;
   for (const p of placement.placed) {
     if (p.building.design !== "tent") continue;
 
+    const cfg = TENT_TIERS[Math.min(p.tier || 1, TENT_TIERS.length - 1)];
     p.spawnTimer = (p.spawnTimer || 0) + dt;
-    while (p.spawnTimer >= SOLDIER.interval) {
-      p.spawnTimer -= SOLDIER.interval;
-      if (soldiers.length < soldierLimit()) spawnSoldier(p);
+    while (p.spawnTimer >= cfg.interval) {
+      p.spawnTimer -= cfg.interval;
+      if (cfg.unit === "soldier" && soldiers.length < soldierLimit()) spawnUnit(p);
+      else if (cfg.unit === "tank" && countUnits("tank") < TANK_CAP) spawnUnit(p);
+      else if (cfg.unit === "siege" && countUnits("siege") < SIEGE_CAP) spawnUnit(p);
     }
   }
 }
 
-/* Soldiers walk toward their target (or stand still when tx is null) */
+function countUnits(kind) {
+  let n = 0;
+  for (const s of soldiers) if ((s.kind || "soldier") === kind) n++;
+  return n;
+}
+
+/* Units walk toward their target (or stand still when tx is null). Tanks move
+   slower than soldiers unless Booster Engines are researched. */
 function updateSoldiers(dt) {
   for (const s of soldiers) {
     if (s.tx === null) continue;
@@ -449,8 +553,12 @@ function updateSoldiers(dt) {
       continue;
     }
 
+    const kind = s.kind || "soldier";
+    const base = kind === "soldier" ? SOLDIER.speed : (UNIT_STATS[kind].speed || SOLDIER.speed);
+    const speed = kind !== "soldier" && hasUpgrade("booster") ? base * 1.4 : base;
+
     s.dir = Math.atan2(dy, dx);
-    const step = Math.min(SOLDIER.speed * dt, d);
+    const step = Math.min(speed * dt, d);
     s.x += Math.cos(s.dir) * step;
     s.y += Math.sin(s.dir) * step;
 
@@ -461,7 +569,7 @@ function updateSoldiers(dt) {
   }
 }
 
-/* Left-click order: send every soldier to the clicked world point */
+/* Left-click order: send every unit to the clicked world point */
 function commandSoldiers(worldX, worldY) {
   for (const s of soldiers) {
     s.tx = worldX + s.ox;
@@ -469,9 +577,31 @@ function commandSoldiers(worldX, worldY) {
   }
 }
 
-/* Soldier: triangle (apex points along `dir`) with a gray border.
-   `fill` is overridable so each player's units use their own color. */
-function paintSoldier(g, cx, cy, size, dir, fill) {
+/* Cannon barrel mounted on a tank (Panzer Cannons research) */
+function paintUnitCannon(g, cx, cy, size, dir) {
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(dir);
+  g.fillStyle = PIPE.color;
+  g.strokeStyle = BUILD_STYLE.border;
+  g.lineWidth = BUILD_STYLE.borderWidth;
+  const len = size * 0.95;
+  const w = size * 0.32;
+  g.beginPath();
+  g.rect(0, -w / 2, len, w);
+  g.fill();
+  g.stroke();
+  g.beginPath();
+  g.arc(0, 0, size * 0.24, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+  g.restore();
+}
+
+/* Unit body: a triangle pointing along `dir` (soldiers small, tanks bigger).
+   Siege tanks add the gray inner triangle detail. `fill` is overridable so
+   each player's units use their own color. */
+function paintSoldier(g, cx, cy, size, dir, fill, kind) {
   g.save();
   g.translate(cx, cy);
   g.rotate(dir + Math.PI / 2);
@@ -492,14 +622,34 @@ function paintSoldier(g, cx, cy, size, dir, fill) {
   g.strokeStyle = BUILD_STYLE.border;
   g.stroke();
 
+  if (kind === "siege") {
+    g.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI / 2 + i * ((Math.PI * 2) / 3);
+      const px = Math.cos(a) * size * 0.45;
+      const py = Math.sin(a) * size * 0.45;
+      if (i === 0) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+    g.closePath();
+    g.fillStyle = PIPE.color;
+    g.fill();
+  }
+
   g.restore();
 }
 
 function drawSoldiers() {
   for (const s of soldiers) {
-    paintSoldier(ctx, s.x, s.y, SOLDIER.size, s.dir);
+    const kind = s.kind || "soldier";
+    const stat = UNIT_STATS[kind];
+    paintSoldier(ctx, s.x, s.y, stat.size, s.dir, BUILD_STYLE.fill, kind);
+    if (kind !== "soldier" && hasUpgrade("cannons")) {
+      paintUnitCannon(ctx, s.x, s.y, stat.size, s.dir);
+    }
     if (s.hp !== undefined) {
-      drawObjectHp(s.x, s.y - SOLDIER.size - 8, SOLDIER.size * 1.6, s.hp, COMBAT.soldier.health);
+      const max = stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1);
+      drawObjectHp(s.x, s.y - stat.size - 8, stat.size * 1.6, s.hp, max);
     }
   }
 }
@@ -721,7 +871,8 @@ function crosshairHot(worldX, worldY) {
       if (Math.hypot(rp.x - worldX, rp.y - worldY) <= PLACE.startSize + 6) return true;
       if (Array.isArray(rp.soldiers)) {
         for (const s of rp.soldiers) {
-          if (Math.hypot(s.x - worldX, s.y - worldY) <= SOLDIER.size + 6) return true;
+          const stat = UNIT_STATS[s.kind] || COMBAT.soldier;
+          if (Math.hypot(s.x - worldX, s.y - worldY) <= stat.size + 6) return true;
         }
       }
       if (Array.isArray(rp.buildings)) {
@@ -1034,16 +1185,94 @@ function paintSquare(g, cx, cy, half, fill, border, lineWidth) {
   }
 }
 
-/* Tent: colored square with an inner gray square (Bloble barracks detail) */
-function paintTent(g, cx, cy, size, fill, rotate) {
+/* Filled circle with an optional border (building body primitive) */
+function paintDisk(g, cx, cy, r, fill, border) {
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fillStyle = fill;
+  g.fill();
+  if (border) {
+    g.lineWidth = BUILD_STYLE.borderWidth;
+    g.strokeStyle = border;
+    g.stroke();
+  }
+}
+
+/* Decorative turrets arranged on a ring (the armory control panel detail) */
+function paintTurretRing(g, cx, cy, r, fill, count, rotate) {
+  for (let i = 0; i < count; i++) {
+    const a = (i * (Math.PI * 2)) / count + (rotate || 0);
+    const tx = cx + Math.cos(a) * r;
+    const ty = cy + Math.sin(a) * r;
+    g.save();
+    g.translate(tx, ty);
+    g.rotate(a);
+    g.fillStyle = fill || PIPE.color;
+    g.strokeStyle = BUILD_STYLE.border;
+    g.lineWidth = BUILD_STYLE.borderWidth;
+    g.beginPath();
+    g.rect(0, -2.5, Math.max(8, r * 0.45), 5);
+    g.fill();
+    g.stroke();
+    g.beginPath();
+    g.arc(0, 0, 3.5, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    g.restore();
+  }
+}
+
+/* Armory: base-colored circle with a gray border, and a gray "control" circle
+   holding four non-functional turrets. */
+function paintArmory(g, cx, cy, size, fill, rotate) {
   g.save();
   if (rotate) {
     g.translate(cx, cy);
     g.rotate(rotate);
     g.translate(-cx, -cy);
   }
-  paintSquare(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
-  paintSquare(g, cx, cy, size * 0.55, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
+  paintDisk(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border);
+  paintDisk(g, cx, cy, size * 0.62, PIPE.color, BUILD_STYLE.border);
+  paintTurretRing(g, cx, cy, size * 0.34, PIPE.color, 4, rotate);
+  g.restore();
+}
+
+/* Tent (barracks). Tiers 1-4:
+   1 = base: square + inner gray square (produces soldiers)
+   2 = Greater Barracks: inner square cut to the base color (faster soldiers)
+   3 = Tank Factory: detail of four small gray squares (produces tanks)
+   4 = Siege Foundry: armory-style circle, inner square + four turrets */
+function paintTent(g, cx, cy, size, fill, rotate, tier) {
+  g.save();
+  if (rotate) {
+    g.translate(cx, cy);
+    g.rotate(rotate);
+    g.translate(-cx, -cy);
+  }
+
+  const t = tier || 1;
+  if (t >= 4) {
+    paintDisk(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border);
+    paintSquare(g, cx, cy, size * 0.52, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
+    paintTurretRing(g, cx, cy, size * 0.34, PIPE.color, 4, rotate);
+  } else {
+    paintSquare(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
+    if (t === 3) {
+      // four small gray squares in a 2x2 detail
+      const off = size * 0.3;
+      const q = size * 0.22;
+      paintSquare(g, cx - off, cy - off, q, PIPE.color, BUILD_STYLE.border, 2);
+      paintSquare(g, cx + off, cy - off, q, PIPE.color, BUILD_STYLE.border, 2);
+      paintSquare(g, cx - off, cy + off, q, PIPE.color, BUILD_STYLE.border, 2);
+      paintSquare(g, cx + off, cy + off, q, PIPE.color, BUILD_STYLE.border, 2);
+    } else if (t === 2) {
+      // inner gray square "cut out" to reveal the base color
+      paintSquare(g, cx, cy, size * 0.55, undefined, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
+    } else {
+      paintSquare(g, cx, cy, size * 0.55, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
+    }
+  }
+
   g.restore();
 }
 
@@ -1086,7 +1315,9 @@ function drawBuildings() {
     } else if (p.building.design === "generator") {
       paintGenerator(ctx, p.x, p.y, s, undefined, dir);
     } else if (p.building.design === "tent") {
-      paintTent(ctx, p.x, p.y, s, undefined, dir);
+      paintTent(ctx, p.x, p.y, s, undefined, dir, p.tier);
+    } else if (p.building.design === "armory") {
+      paintArmory(ctx, p.x, p.y, s, undefined, dir);
     } else if (p.building.design === "house") {
       paintHouse(ctx, p.x, p.y, s, undefined, dir);
     } else {
@@ -1161,6 +1392,7 @@ const TOOL_BUTTONS = [
   { id: "generator-button", building: 2 }, // Generator
   { id: "house-button", building: 3 }, // House
   { id: "sniper-button", building: 4 }, // Sniper Turret
+  { id: "armory-button", building: 5 }, // Armory (research)
   { id: "tent-button", building: 6 }, // Tent
 ];
 
@@ -1343,7 +1575,17 @@ canvas.addEventListener("click", (e) => {
   if (isEliminated()) return; // base destroyed: no more orders
 
   if (placement.active !== null) {
-    placeBuilding(sx, sy, w, h);
+    // Tent tool re-clicks an existing tent to upgrade it; the Armory tool
+    // re-clicks the armory to buy the next research.
+    const world = screenToWorld(sx, sy, w, h);
+    const hovered = buildingAt(world.x, world.y);
+    if (hovered && placement.active === 6 && hovered.building.design === "tent") {
+      upgradeTent(hovered);
+    } else if (hovered && placement.active === 5 && hovered.building.design === "armory") {
+      researchArmory(hovered);
+    } else {
+      placeBuilding(sx, sy, w, h);
+    }
   } else if (actionMode === "delete") {
     const world = screenToWorld(sx, sy, w, h);
     const hit = buildingAt(world.x, world.y);
@@ -1440,6 +1682,15 @@ function drawTentIcon() {
 
   const { ictx, size } = icon;
   paintTent(ictx, size / 2, size / 2, size * 0.34);
+}
+
+/* Armory icon: the red circle with its gray control circle + four turrets */
+function drawArmoryIcon() {
+  const icon = iconContext("armory-icon");
+  if (!icon) return;
+
+  const { ictx, size } = icon;
+  paintArmory(ictx, size / 2, size / 2, size * 0.34);
 }
 
 /* Swap icon: two opposing arrows (exchange) */
@@ -1556,6 +1807,7 @@ function setPlayerColor(hex) {
   drawSniperIcon();
   drawGeneratorIcon();
   drawHouseIcon();
+  drawArmoryIcon();
   drawTentIcon();
 }
 
@@ -1603,6 +1855,7 @@ window.addEventListener("DOMContentLoaded", () => {
   drawGeneratorIcon();
   drawHouseIcon();
   drawSniperIcon();
+  drawArmoryIcon();
   drawTentIcon();
   drawSwapIcon();
   drawDeleteIcon();

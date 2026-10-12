@@ -76,19 +76,32 @@ function waitForUpdate(client, predicate) {
   assert(dist <= CONFIG.spawn.maxDist * 2, "spawn separation too large: " + dist);
   console.log("  spawn separation: " + dist.toFixed(1) + " units (players visible to each other)");
 
-  // 3. state relay: A reports power/a building/a soldier -> B receives it
+  // 3. state relay: A reports power/buildings (incl. a tent tier)/soldiers+tank
   A.send({
     type: "state",
     power: 424.5,
-    buildings: [{ b: 0, uid: 101, x: 1000, y: 1000, dir: 0 }],
-    soldiers: [{ uid: 201, x: 900, y: 900, dir: 1 }],
+    u: 0,
+    buildings: [
+      { b: 0, uid: 101, x: 1000, y: 1000, dir: 0 },
+      { b: 6, uid: 102, x: 980, y: 1000, dir: 0, t: 2 }, // tent, tier 2
+    ],
+    soldiers: [
+      { uid: 201, x: 900, y: 900, dir: 1 },
+      { uid: 202, x: 940, y: 900, dir: 1, kind: "tank" },
+    ],
   });
   const upd = await withTimeout(B.next("update"), 5000, "update relay");
   const seen = upd.players.find((p) => p.id === wa.id);
   assert(seen && Math.abs(seen.power - 424.5) < 0.01, "B should see A's power");
-  assert(seen.buildings.length === 1 && seen.buildings[0].b === 0 && seen.buildings[0].uid === 101, "B should see A's building (with uid)");
-  assert(seen.soldiers.length === 1 && seen.soldiers[0].uid === 201, "B should see A's soldier (with uid)");
-  console.log("  relay OK: power, building, soldier reach the other client");
+  const relayWall = seen.buildings.find((b) => b.uid === 101);
+  assert(relayWall && relayWall.b === 0, "B should see A's building (with uid)");
+  const relayTent = seen.buildings.find((b) => b.uid === 102);
+  assert(relayTent && relayTent.b === 6 && relayTent.t === 2, "tent upgrade tier should relay");
+  const relaySoldier = seen.soldiers.find((s) => s.uid === 201);
+  assert(relaySoldier && relaySoldier.kind === "soldier", "soldier kind should relay");
+  const relayTank = seen.soldiers.find((s) => s.uid === 202);
+  assert(relayTank && relayTank.kind === "tank", "tank kind should relay");
+  console.log("  relay OK: power, buildings (tier), soldiers + tanks reach the other client");
 
   // 4. safe zone on spawn, cleared by space (pvp)
   assert(pb.safe === true, "a fresh player should spawn in a safe zone");
@@ -132,7 +145,54 @@ function waitForUpdate(client, predicate) {
   assert(Number.isFinite(batt.players.find((p) => p.id === wa.id).health), "snapshot carries base health");
   console.log("  combat OK: sniper dealt damage to the enemy soldier");
 
-  // 7. identity: chosen name + base color reach the leaderboard
+  // 7. tanks: the sniper damages a (big) enemy tank...
+  A.send({
+    type: "state",
+    power: 424.5,
+    u: 0,
+    buildings: [{ b: 4, uid: 601, x: pa.x + 100, y: pa.y, dir: 0 }], // sniper near A's base
+    soldiers: [],
+  });
+  B.send({
+    type: "state",
+    power: 200,
+    u: 0,
+    buildings: [],
+    soldiers: [{ uid: 701, x: pa.x + 150, y: pa.y + 150, dir: 0, kind: "tank" }], // 250 hp
+  });
+  const tankBattle = await withTimeout(
+    waitForUpdate(B, (u) => {
+      const me = u.players.find((p) => p.id === wb.id);
+      const s = me.soldiers.find((x) => x.uid === 701);
+      return !s || s.hp < 250; // damaged or destroyed by the sniper
+    }),
+    8000,
+    "tank combat"
+  );
+  const bTank = tankBattle.players.find((p) => p.id === wb.id).soldiers.find((s) => s.uid === 701);
+  assert(!bTank || bTank.hp < 250, "a turret should damage an uncloaked tank");
+  console.log("  tank OK: sniper damaged the enemy tank (250 hp)");
+
+  // 8. cloak: with Cloaking Device researched, enemy towers ignore the tank
+  B.send({
+    type: "state",
+    power: 200,
+    u: 8, // Cloaking Device
+    buildings: [],
+    soldiers: [{ uid: 702, x: pa.x + 150, y: pa.y + 150, dir: 0, kind: "tank" }],
+  });
+  await withTimeout(
+    waitForUpdate(B, (u) => u.players.find((p) => p.id === wb.id).soldiers.some((s) => s.uid === 702)),
+    5000,
+    "cloak tank spawn"
+  );
+  await new Promise((r) => setTimeout(r, 700)); // several combat ticks under the sniper
+  const cloakUpd = await withTimeout(B.next("update"), 5000, "cloak update");
+  const cloakTank = cloakUpd.players.find((p) => p.id === wb.id).soldiers.find((s) => s.uid === 702);
+  assert(cloakTank && cloakTank.hp === 250, "cloaked tanks must not be targeted by enemy towers");
+  console.log("  cloak OK: towers leave the cloaked tank untouched");
+
+  // 9. identity: chosen name + base color reach the leaderboard
   A.send({ type: "identity", name: "Ahab", color: "#112233" });
   const ident = await withTimeout(
     waitForUpdate(B, (u) => u.players.find((p) => p.id === wa.id) && u.players.find((p) => p.id === wa.id).name === "Ahab"),

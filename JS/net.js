@@ -198,14 +198,16 @@ function netUpdate(dt) {
   netSend({
     type: "state",
     power: state.power,
+    u: state.upgrades || 0, // armory research bitmask
     buildings: placement.placed.map((p) => ({
       b: BUILDINGS.indexOf(p.building),
       x: p.x,
       y: p.y,
       dir: p.dir,
       uid: p.uid,
+      t: p.building.design === "tent" ? p.tier || 1 : undefined,
     })),
-    soldiers: soldiers.map((s) => ({ x: s.x, y: s.y, dir: s.dir, uid: s.uid })),
+    soldiers: soldiers.map((s) => ({ x: s.x, y: s.y, dir: s.dir, uid: s.uid, kind: s.kind || "soldier" })),
   });
 }
 
@@ -253,6 +255,9 @@ function drawRemotePlayer(rp) {
   const color = rp.color || "#e03b3b";
   const t = performance.now() / 1000;
   const pulse = 0.5 + 0.5 * Math.sin(t * 2.2 + (rp.id || 0) * 7);
+  const armored = (rp.u & COMBAT.upgradeFlags.armor) !== 0;
+  const cannons = (rp.u & COMBAT.upgradeFlags.cannons) !== 0;
+  const cloaked = (rp.u & COMBAT.upgradeFlags.cloak) !== 0;
 
   // base circle
   ctx.save();
@@ -271,17 +276,31 @@ function drawRemotePlayer(rp) {
     drawObjectHp(rp.x, rp.y - PLACE.startSize - 12, PLACE.startSize * 1.8, rp.health, COMBAT.player.health);
   }
 
-  // buildings
+  // buildings (tents carry their upgrade tier, the armory its research hub)
   if (Array.isArray(rp.buildings)) {
     for (const rb of rp.buildings) paintRemoteBuilding(color, rb);
   }
 
-  // soldiers
+  // units: soldiers, tanks and siege tanks with their own sizes
   if (Array.isArray(rp.soldiers)) {
     for (const s of rp.soldiers) {
-      paintSoldier(ctx, s.x, s.y, SOLDIER.size, s.dir || 0, color);
+      const kind = s.kind || "soldier";
+      const stat = COMBAT.units[kind] || COMBAT.soldier;
+
+      ctx.save();
+      if (cloaked && kind !== "soldier") {
+        // Cloaking Device: enemy players see a ghost, enemy towers see nothing
+        ctx.globalAlpha = 0.28 + 0.14 * Math.sin(t * 3.2 + s.uid);
+      }
+      paintSoldier(ctx, s.x, s.y, stat.size, s.dir || 0, color, kind);
+      if (cannons && kind !== "soldier") {
+        paintUnitCannon(ctx, s.x, s.y, stat.size, s.dir || 0);
+      }
+      ctx.restore();
+
       if (typeof s.hp === "number") {
-        drawObjectHp(s.x, s.y - SOLDIER.size - 8, SOLDIER.size * 1.6, s.hp, COMBAT.soldier.health);
+        const max = stat.health * (armored ? COMBAT.powerArmorMult : 1);
+        drawObjectHp(s.x, s.y - stat.size - 8, stat.size * 1.6, s.hp, max);
       }
     }
   }
@@ -311,7 +330,9 @@ function paintRemoteBuilding(color, rb) {
   } else if (b.design === "house") {
     paintHouse(ctx, rb.x, rb.y, b.size, color);
   } else if (b.design === "tent") {
-    paintTent(ctx, rb.x, rb.y, b.size, color);
+    paintTent(ctx, rb.x, rb.y, b.size, color, rb.dir || 0, rb.t || 1);
+  } else if (b.design === "armory") {
+    paintArmory(ctx, rb.x, rb.y, b.size, color, rb.dir || 0);
   } else {
     // default: plain circle (wall and everything else)
     ctx.beginPath();

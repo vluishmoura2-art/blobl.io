@@ -102,6 +102,7 @@ function snapshot(p) {
       y: bd.y,
       dir: bd.dir,
       hp: Math.ceil(Math.max(0, bd.hp)),
+      t: bd.t, // tent upgrade tier (1..4), undefined for other buildings
     })),
     soldiers: p.soldiers.map((s) => ({
       uid: s.uid,
@@ -109,7 +110,9 @@ function snapshot(p) {
       y: s.y,
       dir: s.dir,
       hp: Math.ceil(Math.max(0, s.hp)),
+      kind: s.kind || "soldier",
     })),
+    u: p.upgrades || 0, // armory research bitmask
   };
 }
 
@@ -131,6 +134,7 @@ function onConnection(ws, req) {
     health: COMBAT.player.health,
     dead: false,
     deadUids: [], // units combat killed, so a late client update can't resurrect them
+    upgrades: 0, // armory research bitmask (FlagArmor/Booster/Cannons/Cloak)
     safe: true,
     safeUntil: Date.now() + CONFIG.safeTime,
     pvp: false,
@@ -212,6 +216,16 @@ function syncUnits(player, existing, incoming, isBuilding) {
       rec.x = inc.x;
       rec.y = inc.y;
       if (typeof inc.dir === "number") rec.dir = inc.dir;
+      if (!isBuilding) {
+        // keep kind/stats fixed from creation; only movement changes here
+        if (!rec.stat) {
+          rec.kind = inc.kind === "tank" || inc.kind === "siege" ? inc.kind : "soldier";
+          rec.stat = COMBAT.units[rec.kind] || COMBAT.soldier;
+          rec.size = rec.stat.size;
+        }
+      } else if (Number.isInteger(inc.t)) {
+        rec.t = inc.t; // tent tier can change (upgrades)
+      }
     } else if (isBuilding && Number.isInteger(inc.b)) {
       const stat = COMBAT.buildingStats[inc.b];
       if (!stat) continue;
@@ -224,14 +238,21 @@ function syncUnits(player, existing, incoming, isBuilding) {
         size: stat.size,
         hp: stat.health,
         stat,
+        t: Number.isInteger(inc.t) ? inc.t : undefined,
       };
     } else if (!isBuilding) {
+      const kind = inc.kind === "tank" || inc.kind === "siege" ? inc.kind : "soldier";
+      const stat = COMBAT.units[kind];
+      const armor = player.upgrades & COMBAT.upgradeFlags.armor ? COMBAT.powerArmorMult : 1;
       rec = {
         uid,
         x: inc.x,
         y: inc.y,
         dir: typeof inc.dir === "number" ? inc.dir : 0,
-        hp: COMBAT.soldier.health,
+        kind,
+        size: stat.size,
+        stat,
+        hp: stat.health * armor,
       };
     } else {
       continue;
@@ -246,6 +267,7 @@ function applyPlayerState(player, msg) {
   if (player.dead) return; // dead players can't rebuild or fight
 
   if (typeof msg.power === "number") player.power = Math.max(0, msg.power);
+  if (typeof msg.u === "number") player.upgrades = msg.u & 15; // armory research mask
   if (Array.isArray(msg.buildings)) {
     player.buildings = syncUnits(player, player.buildings, msg.buildings.slice(0, BUILDING_CAP), true);
   }
@@ -271,56 +293,107 @@ function killPlayer(player) {
 }
 
 /* Damage applied per second while conditions hold. Only unsafe, alive players
-   take part; both sides must be unsafe before any damage is dealt. */
+   take part; both sides must be unsafe before any damage is dealt. Units carry
+   `stat` (their kind's health/damage/size) so tanks and siege tanks fight by
+   their own rules instead of COMBAT.soldier's. */
 function combatTick(dt) {
   const combatants = [...players.values()].filter((p) => !p.dead);
 
-  // buildings shoot / hammer enemy soldiers
+  // buildings shoot / hammer enemy units
   for (const a of combatants) {
     if (a.safe) continue;
     for (const bd of a.buildings) {
       if (!bd.stat || bd.stat.damage <= 0) continue;
-      const reach = bd.stat.range ? bd.stat.range : bd.size + COMBAT.soldier.size;
+      const ranged = bd.stat.range || 0;
       for (const b of combatants) {
         if (b.id === a.id || b.safe) continue;
-        if (b.soldiers.length === 0) continue;
         for (const en of b.soldiers) {
+          // Cloaking Device: enemy towers can't even see your tanks
+          const cloaked = (b.upgrades & COMBAT.upgradeFlags.cloak) !== 0 && en.kind && en.kind !== "soldier";
+          if (ranged && cloaked) continue;
+          const st = en.stat || COMBAT.soldier;
           const dx = en.x - bd.x;
           const dy = en.y - bd.y;
+          const reach = ranged || bd.size + st.size;
           if (dx * dx + dy * dy <= reach * reach) en.hp -= bd.stat.damage * dt;
         }
       }
     }
   }
 
-  // soldiers: contact damage to enemy buildings, base, and soldiers
+  // tanks with Panzer Cannons: ranged fire at the nearest enemy
+  for (const a of combatants) {
+    if (a.safe || !(a.upgrades & COMBAT.upgradeFlags.cannons)) continue;
+    for (const s of a.soldiers) {
+      if (!s.stat || s.kind === "soldier") continue;
+      const R2 = s.stat.range * s.stat.range;
+      let best = Infinity;
+      let tgt = null;
+      for (const b of combatants) {
+        if (b.id === a.id || b.safe) continue;
+        for (const en of b.soldiers) {
+          const dx = en.x - s.x;
+          const dy = en.y - s.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < best) {
+            best = d2;
+            tgt = en;
+          }
+        }
+        for (const bd of b.buildings) {
+          const dx = bd.x - s.x;
+          const dy = bd.y - s.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < best) {
+            best = d2;
+            tgt = bd;
+          }
+        }
+        const dx = b.x - s.x;
+        const dy = b.y - s.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < best) {
+          best = d2;
+          tgt = b;
+        }
+      }
+      if (tgt && best <= R2) {
+        if (tgt.hp !== undefined) tgt.hp -= s.stat.damage * dt;
+        else if (tgt.health !== undefined) tgt.health -= s.stat.damage * dt;
+      }
+    }
+  }
+
+  // units: contact damage to enemy buildings, base, and other units
   for (const a of combatants) {
     if (a.safe) continue;
     for (const s of a.soldiers) {
+      const st = s.stat || COMBAT.soldier;
       for (const b of combatants) {
         if (b.id === a.id || b.safe || b.dead) continue;
 
         for (const bd of b.buildings) {
           const dx = s.x - bd.x;
           const dy = s.y - bd.y;
-          const r = bd.size + COMBAT.soldier.size;
-          if (dx * dx + dy * dy <= r * r) bd.hp -= COMBAT.soldier.damage * dt;
+          const r = bd.size + st.size;
+          if (dx * dx + dy * dy <= r * r) bd.hp -= st.damage * dt;
         }
 
         const bx = s.x - b.x;
         const by = s.y - b.y;
-        const br = COMBAT.player.baseRadius + COMBAT.soldier.size;
-        if (bx * bx + by * by <= br * br) b.health -= COMBAT.soldier.damage * dt;
+        const br = COMBAT.player.baseRadius + st.size;
+        if (bx * bx + by * by <= br * br) b.health -= st.damage * dt;
 
-        // soldiers fight soldiers; apply once per unordered pair
+        // units fight units; apply once per unordered pair
         if (a.id < b.id) {
           for (const en of b.soldiers) {
+            const est = en.stat || COMBAT.soldier;
             const dx = s.x - en.x;
             const dy = s.y - en.y;
-            const r = COMBAT.soldier.size * 2;
+            const r = st.size + est.size;
             if (dx * dx + dy * dy <= r * r) {
-              s.hp -= COMBAT.soldier.damage * dt;
-              en.hp -= COMBAT.soldier.damage * dt;
+              s.hp -= est.damage * dt;
+              en.hp -= st.damage * dt;
             }
           }
         }
@@ -328,7 +401,7 @@ function combatTick(dt) {
     }
   }
 
-  // base defends itself: hits enemy soldiers in attack range
+  // base defends itself: hits enemy units in attack range
   for (const a of combatants) {
     if (a.safe) continue;
     const r = COMBAT.player.attackRange;
