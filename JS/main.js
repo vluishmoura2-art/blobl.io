@@ -1038,6 +1038,35 @@ function drawRangeIndicators() {
   ctx.restore();
 }
 
+/* Player name printed on the base "ball". The font auto-shrinks so even a
+   16-character name stays inside the circle; a dark outline keeps it legible
+   on any base color. */
+function drawBaseName() {
+  if (typeof PROFILE !== "object" || !PROFILE || !PROFILE.name) return;
+
+  const name = String(PROFILE.name);
+  const maxWidth = PLACE.startSize * 1.35;
+  let size = 26;
+
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "900 " + size + "px 'Nunito', system-ui, sans-serif";
+  while (size > 9 && ctx.measureText(name).width > maxWidth) {
+    size -= 1;
+    ctx.font = "900 " + size + "px 'Nunito', system-ui, sans-serif";
+  }
+
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(3, size * 0.24);
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.strokeText(name, PLAYER.x, PLAYER.y);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(name, PLAYER.x, PLAYER.y);
+  ctx.restore();
+}
+
 /* Red base circle (radius = Bloble startSize) with a soft pulsing aura */
 function drawBase() {
   const { fill, border, borderWidth } = STYLE.circle;
@@ -1083,6 +1112,8 @@ function drawBase() {
   if (state.playerHp !== undefined) {
     drawObjectHp(PLAYER.x, PLAYER.y - PLACE.startSize - 12, PLACE.startSize * 1.8, state.playerHp, COMBAT.player.health);
   }
+
+  drawBaseName();
 }
 
 /* Turret: colored body circle + gray pipe (barrel) pointing outward.
