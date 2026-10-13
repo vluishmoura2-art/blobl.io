@@ -208,6 +208,24 @@ function updateAchievements() {
   }
 }
 
+/* ---------- hover carousel ---------- */
+
+/* The carousel fades in while the cursor sits in a band at the center-right of
+   the screen (a touch larger than the panel, so it's easy to reach). Moving the
+   mouse away fades it back out. */
+const ACH_ZONE = { width: 260, height: 520 };
+
+function pointInAchievementZone(clientX, clientY) {
+  const fromRight = window.innerWidth - clientX;
+  const fromCenter = Math.abs(clientY - window.innerHeight / 2);
+  return fromRight <= ACH_ZONE.width && fromCenter <= ACH_ZONE.height / 2;
+}
+
+function setAchievementsVisible(on) {
+  const panel = document.getElementById("achievements");
+  if (panel) panel.classList.toggle("visible", on);
+}
+
 /* ---------- boot ---------- */
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -215,4 +233,10 @@ window.addEventListener("DOMContentLoaded", () => {
   renderAchievements();
   updateAchievements();
   setInterval(updateAchievements, 250);
+
+  window.addEventListener("mousemove", (e) => {
+    setAchievementsVisible(pointInAchievementZone(e.clientX, e.clientY));
+  });
+  document.addEventListener("mouseleave", () => setAchievementsVisible(false));
+  window.addEventListener("blur", () => setAchievementsVisible(false));
 });

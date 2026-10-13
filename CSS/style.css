@@ -316,12 +316,12 @@ label {
   text-decoration: line-through;
 }
 
-/* ---------- Achievements (center-right sidebar, auto-scrolls upward) ---------- */
+/* ---------- Achievements (center-right hover carousel) ---------- */
 #achievements {
   position: fixed;
   top: 50%;
   right: 20px;
-  transform: translateY(-50%);
+  transform: translateY(-50%) scale(0.96);
   width: 200px;
   height: 400px;
   display: flex;
@@ -336,6 +336,17 @@ label {
   font-family: var(--font-ui);
   user-select: none;
   overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.35s ease, transform 0.35s ease, visibility 0.35s ease;
+}
+
+/* Fades in while the cursor rests in the center-right corner */
+#achievements.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) scale(1);
 }
 
 #achievements-title {
@@ -354,13 +365,21 @@ label {
   flex: 1;
   margin-top: 6px;
   overflow: hidden;
+  /* rows fade in at the bottom / out at the top as they scroll past */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
 }
 
 /* The track holds the list twice; translating it by -50% loops seamlessly
-   as a bottom-to-top ticker. */
+   as a bottom-to-top carousel. Paused until the panel is hovered. */
 #achievements-track {
   will-change: transform;
   animation: ach-scroll 48s linear infinite;
+  animation-play-state: paused;
+}
+
+#achievements.visible #achievements-track {
+  animation-play-state: running;
 }
 
 .ach-set {
@@ -369,8 +388,34 @@ label {
   gap: 6px;
 }
 
-#achievements:hover #achievements-track {
-  animation-play-state: paused;
+/* Persistent tab so the hidden carousel stays discoverable */
+#achievements-hint {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  padding: 12px 6px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 2px solid var(--glass-border);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  color: var(--glass-text);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  user-select: none;
+  pointer-events: none;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+#achievements.visible ~ #achievements-hint {
+  opacity: 0;
+  transform: translateY(-50%) translateX(10px);
 }
 
 @keyframes ach-scroll {
