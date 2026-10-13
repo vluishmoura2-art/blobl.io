@@ -316,6 +316,118 @@ label {
   text-decoration: line-through;
 }
 
+/* ---------- Achievements (center-right sidebar, auto-scrolls upward) ---------- */
+#achievements {
+  position: fixed;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
+  width: 200px;
+  height: 400px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 2px solid var(--glass-border);
+  border-radius: 16px;
+  color: var(--glass-text);
+  font-family: var(--font-ui);
+  user-select: none;
+  overflow: hidden;
+}
+
+#achievements-title {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #ffffff;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 4px;
+}
+
+#achievements-viewport {
+  position: relative;
+  flex: 1;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+/* The track holds the list twice; translating it by -50% loops seamlessly
+   as a bottom-to-top ticker. */
+#achievements-track {
+  will-change: transform;
+  animation: ach-scroll 48s linear infinite;
+}
+
+.ach-set {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#achievements:hover #achievements-track {
+  animation-play-state: paused;
+}
+
+@keyframes ach-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+.ach-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  background: #ffffff;
+  border: 2px solid #000000;
+  border-radius: 9px;
+  color: #000000;
+}
+
+.ach-name {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.ach-desc {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.15;
+  opacity: 0.72;
+}
+
+.ach-row.done {
+  background: #e03b3b;
+  color: #ffffff;
+}
+
+.ach-row.done .ach-desc {
+  opacity: 0.9;
+}
+
+.ach-row.flash {
+  animation: ach-flash 1s ease-out;
+}
+
+@keyframes ach-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.95);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(255, 255, 255, 0);
+  }
+}
+
 /* ---------- Eliminated overlay ---------- */
 #eliminated {
   position: fixed;
@@ -530,6 +642,11 @@ label {
   #power-box,
   #eliminated.show,
   #menu {
+    animation: none;
+  }
+
+  #achievements-track,
+  .ach-row.flash {
     animation: none;
   }
 }

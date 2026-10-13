@@ -95,6 +95,7 @@ function snapshot(p) {
     safeUntil: p.safeUntil,
     health: Math.max(0, p.health),
     dead: p.dead,
+    kills: p.kills || 0,
     buildings: p.buildings.map((bd) => ({
       uid: bd.uid,
       b: bd.b,
@@ -135,6 +136,7 @@ function onConnection(ws, req) {
     dead: false,
     deadUids: [], // units combat killed, so a late client update can't resurrect them
     upgrades: 0, // armory research bitmask (FlagArmor/Booster/Cannons/Cloak)
+    kills: 0, // confirmed kills credited to this player (relayed to clients)
     safe: true,
     safeUntil: Date.now() + CONFIG.safeTime,
     pvp: false,
@@ -292,6 +294,32 @@ function killPlayer(player) {
   player.soldiers = [];
 }
 
+/* ---------- kill attribution ---------- */
+
+/* Attribute damage dealt to a target (unit, building or base record) to its
+   attacker, so we can credit the kill to whoever did the most. */
+function creditDamage(target, attacker, amount) {
+  if (!target || !attacker) return;
+  if (!target.dmgBy) target.dmgBy = new Map();
+  target.dmgBy.set(attacker.id, (target.dmgBy.get(attacker.id) || 0) + amount);
+}
+
+/* When a target dies, credit a kill to the player who dealt it the most
+   damage (falls back to nothing when the target was never hit). */
+function awardKill(target) {
+  if (!target || !target.dmgBy) return;
+  let bestId = null;
+  let best = -1;
+  for (const [id, dmg] of target.dmgBy) {
+    if (dmg > best) {
+      best = dmg;
+      bestId = id;
+    }
+  }
+  const attacker = players.get(bestId);
+  if (attacker && !attacker.dead) attacker.kills = (attacker.kills || 0) + 1;
+}
+
 /* Damage applied per second while conditions hold. Only unsafe, alive players
    take part; both sides must be unsafe before any damage is dealt. Units carry
    `stat` (their kind's health/damage/size) so tanks and siege tanks fight by
@@ -315,7 +343,11 @@ function combatTick(dt) {
           const dx = en.x - bd.x;
           const dy = en.y - bd.y;
           const reach = ranged || bd.size + st.size;
-          if (dx * dx + dy * dy <= reach * reach) en.hp -= bd.stat.damage * dt;
+          if (dx * dx + dy * dy <= reach * reach) {
+            const dmg = bd.stat.damage * dt;
+            en.hp -= dmg;
+            creditDamage(en, a, dmg);
+          }
         }
       }
     }
@@ -358,8 +390,10 @@ function combatTick(dt) {
         }
       }
       if (tgt && best <= R2) {
-        if (tgt.hp !== undefined) tgt.hp -= s.stat.damage * dt;
-        else if (tgt.health !== undefined) tgt.health -= s.stat.damage * dt;
+        const dmg = s.stat.damage * dt;
+        if (tgt.hp !== undefined) tgt.hp -= dmg;
+        else if (tgt.health !== undefined) tgt.health -= dmg;
+        creditDamage(tgt, a, dmg);
       }
     }
   }
@@ -376,13 +410,19 @@ function combatTick(dt) {
           const dx = s.x - bd.x;
           const dy = s.y - bd.y;
           const r = bd.size + st.size;
-          if (dx * dx + dy * dy <= r * r) bd.hp -= st.damage * dt;
+          if (dx * dx + dy * dy <= r * r) {
+            bd.hp -= st.damage * dt;
+            creditDamage(bd, a, st.damage * dt);
+          }
         }
 
         const bx = s.x - b.x;
         const by = s.y - b.y;
         const br = COMBAT.player.baseRadius + st.size;
-        if (bx * bx + by * by <= br * br) b.health -= st.damage * dt;
+        if (bx * bx + by * by <= br * br) {
+          b.health -= st.damage * dt;
+          creditDamage(b, a, st.damage * dt);
+        }
 
         // units fight units; apply once per unordered pair
         if (a.id < b.id) {
@@ -392,8 +432,12 @@ function combatTick(dt) {
             const dy = s.y - en.y;
             const r = st.size + est.size;
             if (dx * dx + dy * dy <= r * r) {
-              s.hp -= est.damage * dt;
-              en.hp -= st.damage * dt;
+              const dmgToS = est.damage * dt; // enemy unit (owner b) hits ours
+              const dmgToEn = st.damage * dt; // our unit (owner a) hits theirs
+              s.hp -= dmgToS;
+              en.hp -= dmgToEn;
+              creditDamage(s, b, dmgToS);
+              creditDamage(en, a, dmgToEn);
             }
           }
         }
@@ -410,7 +454,10 @@ function combatTick(dt) {
       for (const en of b.soldiers) {
         const dx = en.x - a.x;
         const dy = en.y - a.y;
-        if (dx * dx + dy * dy <= r * r) en.hp -= COMBAT.player.damage * dt;
+        if (dx * dx + dy * dy <= r * r) {
+          en.hp -= COMBAT.player.damage * dt;
+          creditDamage(en, a, COMBAT.player.damage * dt);
+        }
       }
     }
   }
@@ -420,17 +467,22 @@ function combatTick(dt) {
     if (p.dead) continue;
     for (let i = p.soldiers.length - 1; i >= 0; i--) {
       if (p.soldiers[i].hp <= 0) {
+        awardKill(p.soldiers[i]);
         killUnit(p, p.soldiers[i].uid);
         p.soldiers.splice(i, 1);
       }
     }
     for (let i = p.buildings.length - 1; i >= 0; i--) {
       if (p.buildings[i].hp <= 0) {
+        awardKill(p.buildings[i]);
         killUnit(p, p.buildings[i].uid);
         p.buildings.splice(i, 1);
       }
     }
-    if (p.health <= 0) killPlayer(p);
+    if (p.health <= 0) {
+      awardKill(p);
+      killPlayer(p);
+    }
   }
 }
 

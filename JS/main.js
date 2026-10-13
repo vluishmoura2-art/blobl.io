@@ -125,6 +125,7 @@ const state = {
   power: POWER.start,
   playerHp: typeof COMBAT !== "undefined" ? COMBAT.player.health : 500,
   upgrades: 0, // armory research bitmask (see COMBAT.upgradeFlags)
+  kills: 0, // kills credited by the server (drives achievements)
 };
 
 /* ---------- UNITS (soldiers / tanks / siege tanks) ---------- */
@@ -1621,6 +1622,7 @@ canvas.addEventListener("mouseup", (e) => {
     burst(p.x, p.y, BUILD_STYLE.fill, 10, 120);
     burst(target.x, target.y, BUILD_STYLE.fill, 10, 120);
     if (typeof Sfx !== "undefined") Sfx.play("swap");
+    if (typeof unlockAchievement === "function") unlockAchievement("flexible");
   }
 
   drag.active = false;

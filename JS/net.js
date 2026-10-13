@@ -119,9 +119,20 @@ function netMessage(raw) {
 function reconcileSelf(me) {
   if (!me) return;
 
+  const wasSafe = net.mySafe;
   net.mySafe = me.safe;
   net.myPvp = me.pvp;
   net.mySafeRemaining = Math.max(0, me.safeUntil - Date.now());
+
+  // "Passive": the safe-zone timer ran out on its own (space was never pressed)
+  if (wasSafe && !me.safe && !me.pvp && typeof unlockAchievement === "function") {
+    unlockAchievement("passive");
+  }
+
+  // kill count relayed by the server drives the kill-milestone achievements
+  if (typeof me.kills === "number" && typeof state === "object" && state) {
+    state.kills = me.kills;
+  }
 
   if (typeof me.health === "number") {
     const prev = state.playerHp;
@@ -226,6 +237,7 @@ function onSpaceForPvp() {
   if (typeof Sfx !== "undefined") Sfx.play("pvp");
   if (typeof addShake === "function") addShake(2.5);
   if (typeof burst === "function") burst(PLAYER.x, PLAYER.y, PROFILE ? PROFILE.color : "#e03b3b", 16, 150);
+  if (typeof unlockAchievement === "function") unlockAchievement("pvp");
   draw();
 }
 
