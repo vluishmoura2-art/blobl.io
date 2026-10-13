@@ -94,7 +94,7 @@ function netMessage(raw) {
 
     // tell the server our chosen name + base color (leaderboard + hues)
     if (typeof PROFILE === "object") {
-      netSend({ type: "identity", name: PROFILE.name, color: PROFILE.color });
+      netSend({ type: "identity", name: PROFILE.name, color: PROFILE.color, tag: PROFILE.tag || null });
     }
 
     refreshLeaderboard();
@@ -320,15 +320,8 @@ function drawRemotePlayer(rp) {
   // safe zone ring (over everything so it stays visible)
   if (rp.safe) drawSafeRing(rp.x, rp.y);
 
-  // name tag
-  ctx.font = "700 13px 'Nunito', system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
-  ctx.strokeText(rp.name, rp.x, rp.y - PLACE.startSize - 18);
-  ctx.fillStyle = color;
-  ctx.fillText(rp.name, rp.x, rp.y - PLACE.startSize - 18);
+  // name + earned achievement tag on the base ball
+  if (typeof drawBaseLabel === "function") drawBaseLabel(rp.x, rp.y, rp.name, rp.tag || null);
 }
 
 function paintRemoteBuilding(color, rb) {

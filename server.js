@@ -96,6 +96,7 @@ function snapshot(p) {
     health: Math.max(0, p.health),
     dead: p.dead,
     kills: p.kills || 0,
+    tag: p.tag || null,
     buildings: p.buildings.map((bd) => ({
       uid: bd.uid,
       b: bd.b,
@@ -137,6 +138,7 @@ function onConnection(ws, req) {
     deadUids: [], // units combat killed, so a late client update can't resurrect them
     upgrades: 0, // armory research bitmask (FlagArmor/Booster/Cannons/Cloak)
     kills: 0, // confirmed kills credited to this player (relayed to clients)
+    tag: null, // earned-achievement tag shown under the base name
     safe: true,
     safeUntil: Date.now() + CONFIG.safeTime,
     pvp: false,
@@ -185,6 +187,12 @@ function handleMessage(player, raw) {
       }
       if (typeof msg.color === "string" && /^#[0-9a-fA-F]{6}$/.test(msg.color)) {
         player.color = msg.color;
+      }
+      // cosmetic achievement tag; only a short slug is accepted
+      if (msg.tag === null || msg.tag === "") {
+        player.tag = null;
+      } else if (typeof msg.tag === "string" && /^[a-z0-9-]{1,32}$/.test(msg.tag)) {
+        player.tag = msg.tag;
       }
       break;
 

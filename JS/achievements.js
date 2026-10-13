@@ -37,10 +37,12 @@ const ACHIEVEMENTS = [
 ];
 
 const ACH_STORAGE_KEY = "blobl.achievements.v1";
+const ACH_TAG_KEY = "blobl.achievementTag.v1";
 const ACH_COLOR = "#e03b3b";
 
 const achievements = {
   unlocked: new Set(),
+  tag: null, // id of the earned achievement shown on the base (one only)
 };
 
 /* ---------- persistence ---------- */
@@ -69,6 +71,38 @@ function saveAchievements() {
 
 function isAchievementUnlocked(id) {
   return achievements.unlocked.has(id);
+}
+
+function getAchievementName(id) {
+  const a = ACHIEVEMENTS.find((x) => x.id === id);
+  return a ? a.name : null;
+}
+
+/* ---------- tag (one earned achievement shown under the base name) ---------- */
+
+function loadTag() {
+  try {
+    const id = localStorage.getItem(ACH_TAG_KEY);
+    achievements.tag = id && isAchievementUnlocked(id) ? id : null;
+  } catch {
+    achievements.tag = null;
+  }
+}
+
+function saveTag() {
+  try {
+    if (achievements.tag) localStorage.setItem(ACH_TAG_KEY, achievements.tag);
+    else localStorage.removeItem(ACH_TAG_KEY);
+  } catch {
+    /* no-op */
+  }
+}
+
+/* A tag is only accepted when it is actually earned; anything else clears it. */
+function setAchievementTag(id) {
+  achievements.tag = id && isAchievementUnlocked(id) ? id : null;
+  saveTag();
+  if (typeof PROFILE === "object" && PROFILE) PROFILE.tag = achievements.tag;
 }
 
 /* ---------- unlocking ---------- */
@@ -208,6 +242,31 @@ function updateAchievements() {
   }
 }
 
+/* ---------- tag menu ---------- */
+
+/* Fill the start-menu picker with the achievements this player has earned.
+   Only earned ones appear, and only one can be chosen (plus "No tag"). */
+function populateTagMenu() {
+  const select = document.getElementById("menu-tag");
+  if (!select) return;
+
+  const unlocked = ACHIEVEMENTS.filter((a) => isAchievementUnlocked(a.id));
+  let html = unlocked.length
+    ? '<option value="">No tag</option>'
+    : '<option value="">No tags yet</option>';
+  for (const a of unlocked) {
+    html += '<option value="' + a.id + '">' + escapeAchievementText(a.name) + "</option>";
+  }
+  select.innerHTML = html;
+  select.disabled = unlocked.length === 0;
+
+  const current = achievements.tag && isAchievementUnlocked(achievements.tag) ? achievements.tag : "";
+  select.value = current;
+  setAchievementTag(current || null);
+
+  select.addEventListener("change", () => setAchievementTag(select.value || null));
+}
+
 /* ---------- hover carousel ---------- */
 
 /* The carousel fades in while the cursor sits in a band at the center-right of
@@ -230,7 +289,9 @@ function setAchievementsVisible(on) {
 
 window.addEventListener("DOMContentLoaded", () => {
   loadAchievements();
+  loadTag();
   renderAchievements();
+  populateTagMenu();
   updateAchievements();
   setInterval(updateAchievements, 250);
 

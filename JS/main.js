@@ -1038,13 +1038,14 @@ function drawRangeIndicators() {
   ctx.restore();
 }
 
-/* Player name printed on the base "ball". The font auto-shrinks so even a
-   16-character name stays inside the circle; a dark outline keeps it legible
-   on any base color. */
-function drawBaseName() {
-  if (typeof PROFILE !== "object" || !PROFILE || !PROFILE.name) return;
+/* Draws a player's name centered on their base "ball", with the achievement
+   tag they earned (if any) on a pill directly below it. Shared by the local
+   player and remote players. The font auto-shrinks so even a 16-character
+   name stays inside the circle; a dark outline keeps it legible on any color. */
+function drawBaseLabel(x, y, name, tagId) {
+  if (!name) return;
+  name = String(name);
 
-  const name = String(PROFILE.name);
   const maxWidth = PLACE.startSize * 1.35;
   let size = 26;
 
@@ -1060,11 +1061,47 @@ function drawBaseName() {
   ctx.lineJoin = "round";
   ctx.lineWidth = Math.max(3, size * 0.24);
   ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
-  ctx.strokeText(name, PLAYER.x, PLAYER.y);
+  ctx.strokeText(name, x, y);
 
   ctx.fillStyle = "#ffffff";
-  ctx.fillText(name, PLAYER.x, PLAYER.y);
+  ctx.fillText(name, x, y);
   ctx.restore();
+
+  if (tagId) drawBaseTag(x, y + size * 0.5 + 13, tagId);
+}
+
+/* Small red badge (black border, white text) carrying an earned achievement's
+   name, sitting under the base name. */
+function drawBaseTag(x, y, tagId) {
+  const label = typeof getAchievementName === "function" ? getAchievementName(tagId) : null;
+  if (!label) return;
+
+  ctx.save();
+  ctx.font = "800 11px 'Nunito', system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const padX = 8;
+  const h = 18;
+  const w = ctx.measureText(label).width + padX * 2;
+
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h / 2, w, h, 7);
+  else ctx.rect(x - w / 2, y - h / 2, w, h);
+  ctx.fillStyle = "#e03b3b";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#000000";
+  ctx.stroke();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(label, x, y + 1);
+  ctx.restore();
+}
+
+function drawBaseName() {
+  if (typeof PROFILE !== "object" || !PROFILE) return;
+  drawBaseLabel(PLAYER.x, PLAYER.y, PROFILE.name, PROFILE.tag);
 }
 
 /* Red base circle (radius = Bloble startSize) with a soft pulsing aura */
@@ -1871,6 +1908,7 @@ function initToolButtons() {
 const PROFILE = {
   name: "Player",
   color: BUILD_STYLE.fill,
+  tag: null, // id of the earned achievement shown under the base name
 };
 
 let gameStarted = false;
@@ -1913,7 +1951,9 @@ function startGame() {
 
   const nameInput = document.getElementById("menu-name");
   const colorInput = document.getElementById("menu-color");
+  const tagSelect = document.getElementById("menu-tag");
   PROFILE.name = (nameInput && nameInput.value.trim()) || "Player";
+  PROFILE.tag = (tagSelect && tagSelect.value) || null;
 
   const menu = document.getElementById("menu");
   if (menu) menu.classList.add("hidden");

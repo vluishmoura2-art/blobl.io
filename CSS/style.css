@@ -612,6 +612,48 @@ label {
   box-shadow: 0 0 0 4px rgba(11, 18, 32, 0.08);
 }
 
+/* Achievement tag picker (only earned achievements are listed) */
+.menu-tag-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+#menu-tag-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #6b788c;
+  padding-left: 4px;
+}
+
+#menu-tag {
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: clamp(14px, 3.6vw, 16px);
+  font-weight: 700;
+  padding: 13px 14px;
+  border: 3px solid #9aa3b0;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #0b1220;
+  text-align-last: center;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#menu-tag:focus {
+  border-color: #0b1220;
+  box-shadow: 0 0 0 4px rgba(11, 18, 32, 0.08);
+}
+
+#menu-tag:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* Round color swatch nested inside the nickname field */
 .menu-swatch {
   position: absolute;
