@@ -14,40 +14,110 @@
 <body>
   <canvas id="canvas" aria-label="Canvas" role="img"></canvas>
 
+  <!-- Shared neon gradients for the sidebar vector icons. The stops read the
+       live --player-color token, so the icons recolor with the base. -->
+  <svg class="icon-defs" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="toolGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" class="grad-a" stop-color="#ff8a6e" />
+        <stop offset="1" class="grad-b" stop-color="#c81e3a" />
+      </linearGradient>
+      <linearGradient id="modeGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#9fdcff" />
+        <stop offset="1" stop-color="#3f8fe0" />
+      </linearGradient>
+    </defs>
+  </svg>
+
   <button id="wall-button" type="button" aria-label="Toggle walls" aria-pressed="false">
-    <canvas id="wall-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 7h16v10H4z" />
+        <path d="M4 12h16" />
+        <path d="M9.5 7v5M14.5 7v5M12 12v5" />
+      </g>
+    </svg>
   </button>
 
   <button id="turret-button" type="button" aria-label="Toggle small turrets" aria-pressed="false">
-    <canvas id="turret-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="15" r="4.6" />
+        <path d="M12 10.4V4.4" />
+        <path d="M9.4 4.4h5.2" />
+        <circle cx="12" cy="15" r="1.5" fill="url(#toolGrad)" stroke="none" />
+      </g>
+    </svg>
   </button>
 
   <button id="generator-button" type="button" aria-label="Toggle generators" aria-pressed="false">
-    <canvas id="generator-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3.1 19.7 7.55v8.9L12 20.9 4.3 16.45v-8.9z" />
+        <path d="M13 7.6 9.2 13h2.5l-.7 3.4 3.8-5.4h-2.5z" fill="url(#toolGrad)" stroke="none" />
+      </g>
+    </svg>
   </button>
 
   <button id="house-button" type="button" aria-label="Toggle houses" aria-pressed="false">
-    <canvas id="house-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3.8 11.2 12 4l8.2 7.2" />
+        <path d="M6.2 10.2V20h11.6v-9.8" />
+        <path d="M10.1 20v-4.4h3.8V20" />
+      </g>
+    </svg>
   </button>
 
   <button id="sniper-button" type="button" aria-label="Toggle sniper turrets" aria-pressed="false">
-    <canvas id="sniper-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="13" r="5.6" />
+        <path d="M11 4.6v2.8M11 18.6v.8M2.6 13h2.8M16.6 13h4.8" />
+        <path d="M15 9 21 3" />
+        <circle cx="11" cy="13" r="1.4" fill="url(#toolGrad)" stroke="none" />
+      </g>
+    </svg>
   </button>
 
   <button id="armory-button" type="button" aria-label="Toggle armory research" aria-pressed="false">
-    <canvas id="armory-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="7.4" />
+        <circle cx="12" cy="12" r="3.1" />
+        <path d="M19.4 12h2M2.6 12h2M12 4.6v-2M12 21.4v-2M17.2 17.2l1.4 1.4M5.4 5.4l1.4 1.4M17.2 6.8l1.4-1.4M5.4 18.6l1.4-1.4" />
+      </g>
+    </svg>
   </button>
 
   <button id="tent-button" type="button" aria-label="Toggle tents" aria-pressed="false">
-    <canvas id="tent-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3.6 20 12 4l8.4 16z" />
+        <path d="M9 20l3-6.2 3 6.2" />
+        <path d="M12 4V1.8" />
+      </g>
+    </svg>
   </button>
 
   <button id="swap-button" type="button" aria-label="Toggle drag-and-drop swap mode" aria-pressed="false">
-    <canvas id="swap-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#modeGrad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 9h11M12.6 5.4 16.2 9l-3.6 3.6" />
+        <path d="M19.5 15h-11M11.4 11.4 7.8 15l3.6 3.6" />
+      </g>
+    </svg>
   </button>
 
   <button id="delete-button" type="button" aria-label="Toggle delete mode" aria-pressed="false">
-    <canvas id="delete-icon" width="48" height="48" aria-hidden="true"></canvas>
+    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="none" stroke="url(#modeGrad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 6.5h16" />
+        <path d="M9 6.5V4.2h6v2.3" />
+        <path d="M6.6 6.5 7.6 20h8.8l1-13.5" />
+        <path d="M10.2 10v6.4M13.8 10v6.4" />
+      </g>
+    </svg>
   </button>
 
   <div id="power-box" role="status" aria-live="polite" aria-label="Power">

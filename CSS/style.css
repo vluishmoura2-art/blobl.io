@@ -84,7 +84,19 @@ label {
   justify-content: center;
   padding: 0;
   cursor: pointer;
-  transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out, filter 0.15s ease-in-out;
+  /* hyper-rounded "squircle" so the buttons read as glass tokens, not boxes */
+  border-radius: 22px;
+  /* soft neon ring that intensifies on hover */
+  box-shadow:
+    0 10px 30px rgba(2, 8, 18, 0.45),
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px rgba(255, 255, 255, 0);
+  transition:
+    background 0.25s ease-in-out,
+    border-color 0.25s ease-in-out,
+    box-shadow 0.25s ease-in-out,
+    transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2),
+    filter 0.25s ease-in-out;
 }
 
 #wall-button {
@@ -133,10 +145,14 @@ label {
 #swap-button:hover,
 #delete-button:hover {
   background: var(--glass-bg-strong);
-  border-color: rgba(255, 255, 255, 0.32);
-  transform: translateY(-2px);
-  filter: brightness(1.1);
-  box-shadow: 0 14px 34px rgba(2, 8, 18, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  border-color: color-mix(in srgb, var(--player-color) 55%, rgba(255, 255, 255, 0.32));
+  /* zoom + a neon edge glow that grows smoothly out of the border */
+  transform: scale(1.08);
+  filter: brightness(1.12);
+  box-shadow:
+    0 16px 36px rgba(2, 8, 18, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 0 22px color-mix(in srgb, var(--player-color) 60%, transparent);
 }
 
 #wall-button:active,
@@ -148,7 +164,7 @@ label {
 #tent-button:active,
 #swap-button:active,
 #delete-button:active {
-  transform: translateY(1px) scale(0.98);
+  transform: scale(0.96);
 }
 
 /* Selected state (tool active): neon player-color border, inner glow and a
@@ -164,7 +180,10 @@ label {
 #delete-button.selected {
   background: var(--glass-bg-strong);
   border-color: var(--player-color);
-  box-shadow: inset 0 0 0 1px var(--player-color), 0 0 22px color-mix(in srgb, var(--player-color) 60%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--player-color),
+    0 0 24px color-mix(in srgb, var(--player-color) 65%, transparent),
+    0 0 10px color-mix(in srgb, var(--player-color) 45%, transparent);
   transform: scale(1.08);
 }
 
@@ -181,19 +200,47 @@ label {
   outline-offset: 2px;
 }
 
-#wall-icon,
-#turret-icon,
-#generator-icon,
-#house-icon,
-#sniper-icon,
-#armory-icon,
-#tent-icon,
-#swap-icon,
-#delete-icon {
-  display: block;
-  width: 44px;
-  height: 44px;
+/* ---------- Sidebar vector icons (SVG, neon gradient) ---------- */
+/* Hidden sprite holder for the shared gradients */
+.icon-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
   pointer-events: none;
+}
+
+/* Gradient stops follow the live base color so the icons recolour with it */
+#toolGrad .grad-a {
+  stop-color: color-mix(in srgb, var(--player-color) 55%, #ffffff);
+}
+
+#toolGrad .grad-b {
+  stop-color: color-mix(in srgb, var(--player-color) 82%, #0b1524);
+}
+
+/* The inline SVG inside each button */
+.tool-icon {
+  display: block;
+  width: 30px;
+  height: 30px;
+  pointer-events: none;
+  /* neon bloom that matches the player color */
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--player-color) 55%, transparent));
+  transition: filter 0.25s ease-in-out, transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+#wall-button:hover .tool-icon,
+#turret-button:hover .tool-icon,
+#generator-button:hover .tool-icon,
+#house-button:hover .tool-icon,
+#sniper-button:hover .tool-icon,
+#armory-button:hover .tool-icon,
+#tent-button:hover .tool-icon,
+#swap-button:hover .tool-icon,
+#delete-button:hover .tool-icon {
+  transform: scale(1.06);
+  filter: drop-shadow(0 0 9px color-mix(in srgb, var(--player-color) 75%, transparent));
 }
 
 /* ---------- Power readout (top-left glass pill with bolt icon) ---------- */

@@ -231,6 +231,10 @@ const CAMERA = {
 const camera = {
   x: PLAYER.x,
   y: PLAYER.y,
+  // desired position: input nudges these, the real camera eases toward them so
+  // movement carries weight instead of snapping (see updateCamera)
+  tx: PLAYER.x,
+  ty: PLAYER.y,
 };
 
 /* Movement keys currently held down (normalized to lowercase) */
@@ -280,6 +284,8 @@ function resize() {
 }
 
 /* ---------- CAMERA UPDATE (WASD steers the camera) ---------- */
+/* Input pushes a target point; the camera then eases toward it (exponential
+   smoothing) so starts, stops and turns feel fluid and weighted. */
 function updateCamera(dt) {
   let dx = 0;
   let dy = 0;
@@ -294,12 +300,17 @@ function updateCamera(dt) {
 
   if (dx !== 0 || dy !== 0) {
     const len = Math.hypot(dx, dy);
-    camera.x += (dx / len) * CAMERA.speed * dt;
-    camera.y += (dy / len) * CAMERA.speed * dt;
+    camera.tx += (dx / len) * CAMERA.speed * dt;
+    camera.ty += (dy / len) * CAMERA.speed * dt;
   }
 
-  camera.x = clamp(camera.x, 0, MAP.width);
-  camera.y = clamp(camera.y, 0, MAP.height);
+  camera.tx = clamp(camera.tx, 0, MAP.width);
+  camera.ty = clamp(camera.ty, 0, MAP.height);
+
+  // frame-rate independent lerp toward the target (~16/s catch-up rate)
+  const ease = 1 - Math.exp(-dt * 16);
+  camera.x += (camera.tx - camera.x) * ease;
+  camera.y += (camera.ty - camera.y) * ease;
 }
 
 /* ---------- PLACEMENT MATH (faithful to game.js) ---------- */
@@ -563,33 +574,55 @@ function countUnits(kind) {
 }
 
 /* Units walk toward their target (or stand still when tx is null). Tanks move
-   slower than soldiers unless Booster Engines are researched. */
+   slower than soldiers unless Booster Engines are researched. Each unit also
+   eases a 0..1 `move` flag (for squish & stretch) and leaves a fading trail. */
 function updateSoldiers(dt) {
   for (const s of soldiers) {
-    if (s.tx === null) continue;
+    let moving = 0;
 
-    const dx = s.tx - s.x;
-    const dy = s.ty - s.y;
-    const d = Math.hypot(dx, dy);
+    if (s.tx !== null) {
+      const dx = s.tx - s.x;
+      const dy = s.ty - s.y;
+      const d = Math.hypot(dx, dy);
 
-    if (d <= 0.5) {
-      s.tx = null;
-      s.ty = null;
-      continue;
+      if (d <= 0.5) {
+        s.tx = null;
+        s.ty = null;
+      } else {
+        const kind = s.kind || "soldier";
+        const base = kind === "soldier" ? SOLDIER.speed : (UNIT_STATS[kind].speed || SOLDIER.speed);
+        const speed = kind !== "soldier" && hasUpgrade("booster") ? base * 1.4 : base;
+
+        s.dir = Math.atan2(dy, dx);
+        const step = Math.min(speed * dt, d);
+        s.x += Math.cos(s.dir) * step;
+        s.y += Math.sin(s.dir) * step;
+        moving = 1;
+
+        if (step >= d) {
+          s.tx = null;
+          s.ty = null;
+        }
+      }
     }
 
-    const kind = s.kind || "soldier";
-    const base = kind === "soldier" ? SOLDIER.speed : (UNIT_STATS[kind].speed || SOLDIER.speed);
-    const speed = kind !== "soldier" && hasUpgrade("booster") ? base * 1.4 : base;
+    // eased "is moving" flag drives the unit squish & stretch (see drawSoldiers)
+    const move = s.move || 0;
+    s.move = move + (moving - move) * (1 - Math.exp(-dt * 12));
 
-    s.dir = Math.atan2(dy, dx);
-    const step = Math.min(speed * dt, d);
-    s.x += Math.cos(s.dir) * step;
-    s.y += Math.sin(s.dir) * step;
-
-    if (step >= d) {
-      s.tx = null;
-      s.ty = null;
+    // a moving unit sheds a short, fading trail particle
+    if (moving && s.move > 0.25 && FX.trail.length < 260 && Math.random() < 0.5) {
+      const tail = s.dir + Math.PI;
+      FX.trail.push({
+        x: s.x + Math.cos(tail) * 6 + (Math.random() - 0.5) * 6,
+        y: s.y + Math.sin(tail) * 6 + (Math.random() - 0.5) * 6,
+        vx: Math.cos(tail) * (10 + Math.random() * 18) + (Math.random() - 0.5) * 12,
+        vy: Math.sin(tail) * (10 + Math.random() * 18) + (Math.random() - 0.5) * 12,
+        r: 1 + Math.random() * 1.6,
+        life: 1,
+        fade: 2.8 + Math.random() * 1.8,
+        tint: BUILD_STYLE.fill,
+      });
     }
   }
 }
@@ -625,11 +658,15 @@ function paintUnitCannon(g, cx, cy, size, dir) {
 
 /* Unit body: a triangle pointing along `dir` (soldiers small, tanks bigger).
    Siege tanks add the gray inner triangle detail. `fill` is overridable so
-   each player's units use their own color. */
-function paintSoldier(g, cx, cy, size, dir, fill, kind) {
+   each player's units use their own color. `squash` (0..1) stretches the body
+   along its heading so it reads as motion. */
+function paintSoldier(g, cx, cy, size, dir, fill, kind, squash) {
   g.save();
   g.translate(cx, cy);
   g.rotate(dir + Math.PI / 2);
+
+  // squish & stretch along the direction of travel (local y axis)
+  if (squash) g.scale(1 - squash * 0.17, 1 + squash * 0.3);
 
   g.beginPath();
   for (let i = 0; i < 3; i++) {
@@ -641,7 +678,7 @@ function paintSoldier(g, cx, cy, size, dir, fill, kind) {
   }
   g.closePath();
 
-  g.fillStyle = orbGradient(g, cx, cy, size, fill);
+  g.fillStyle = orbGradient(g, 0, 0, size, fill);
   g.fill();
   g.lineWidth = SOLDIER.borderWidth;
   g.strokeStyle = BUILD_STYLE.border;
@@ -668,7 +705,7 @@ function drawSoldiers() {
   for (const s of soldiers) {
     const kind = s.kind || "soldier";
     const stat = UNIT_STATS[kind];
-    paintSoldier(ctx, s.x, s.y, stat.size, s.dir, BUILD_STYLE.fill, kind);
+    paintSoldier(ctx, s.x, s.y, stat.size, s.dir, BUILD_STYLE.fill, kind, s.move || 0);
     if (kind !== "soldier" && hasUpgrade("cannons")) {
       paintUnitCannon(ctx, s.x, s.y, stat.size, s.dir);
     }
@@ -746,6 +783,12 @@ const FX = {
   t: 0,
   prevCamX: null,
   prevCamY: null,
+  /* squish & stretch: how much the base is currently deformed and along which
+     angle, driven by camera velocity (see updateFx) */
+  squish: 0,
+  squishAngle: 0,
+  camSpeed: 0, // smoothed camera speed (world px/s)
+  prevCamSpeed: 0,
 };
 
 function colorWithAlpha(hex, a) {
@@ -841,11 +884,24 @@ function drawAmbience(time, w, h) {
     ctx.fill();
   }
 
-  // wake particles trailing behind the moving core
+  // wake / motion trails: soft motes that shrink and fade as they die, drawn
+  // with a glow halo so movement leaves a smooth ribbon behind it
   for (const p of FX.trail) {
+    const life = Math.max(0, p.life);
+    const r = p.r * (0.35 + 0.65 * life);
+    const a = life * life * 0.4;
+
+    const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.2);
+    halo.addColorStop(0, colorWithAlpha(p.tint || BUILD_STYLE.fill, a * 0.7));
+    halo.addColorStop(1, colorWithAlpha(p.tint || BUILD_STYLE.fill, 0));
+    ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fillStyle = colorWithAlpha(BUILD_STYLE.fill, Math.max(0, p.life) * 0.26);
+    ctx.arc(p.x, p.y, r * 3.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = colorWithAlpha(p.tint || BUILD_STYLE.fill, a);
     ctx.fill();
   }
 
@@ -904,6 +960,19 @@ function updateFx(dt) {
   FX.prevCamY = camera.y;
 
   const vmag = Math.hypot(vx, vy);
+
+  // squish & stretch: the fixed base deforms along the direction it appears to
+  // travel (the camera's motion), stretching at speed and popping on accel.
+  // Clamped so a teleport/spawn jump can't peg the deformation.
+  const spd = dt > 0 ? Math.min(vmag / dt, CAMERA.speed * 3) : 0;
+  FX.camSpeed += (spd - FX.camSpeed) * (1 - Math.exp(-dt * 10));
+  const cruise = Math.min(1, FX.camSpeed / CAMERA.speed);
+  const accel = Math.abs(FX.camSpeed - FX.prevCamSpeed) / Math.max(dt, 1e-4);
+  FX.prevCamSpeed = FX.camSpeed;
+  const squishTarget = Math.min(0.17, cruise * 0.11 + Math.min(accel / 4200, 0.06));
+  FX.squish += (squishTarget - FX.squish) * (1 - Math.exp(-dt * 13));
+  if (vmag > 0.5) FX.squishAngle = Math.atan2(vy, vx);
+
   if (vmag > 6) {
     const wake = Math.atan2(vy, vx); // the base's "back" faces the camera motion
     const n = Math.min(3, 1 + Math.floor(vmag / 9));
@@ -916,6 +985,7 @@ function updateFx(dt) {
         r: 1.5 + Math.random() * 2.5,
         life: 1,
         fade: 2.4 + Math.random() * 1.6,
+        tint: BUILD_STYLE.fill,
       });
     }
   }
@@ -930,7 +1000,7 @@ function updateFx(dt) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
   }
-  if (FX.trail.length > 120) FX.trail.splice(0, FX.trail.length - 120);
+  if (FX.trail.length > 260) FX.trail.splice(0, FX.trail.length - 260);
 }
 
 /* True when the crosshair sits on an attackable target: an enemy base, soldier
@@ -1309,6 +1379,18 @@ function drawBase() {
   ctx.stroke();
   ctx.restore();
 
+  // squish & stretch: deform the body along the camera's motion direction so
+  // the base reads as a weighty blob that leans into its movement
+  ctx.save();
+  if (FX.squish > 0.001) {
+    const s = FX.squish;
+    ctx.translate(PLAYER.x, PLAYER.y);
+    ctx.rotate(FX.squishAngle);
+    ctx.scale(1 + s, 1 - s * 0.62);
+    ctx.rotate(-FX.squishAngle);
+    ctx.translate(-PLAYER.x, -PLAYER.y);
+  }
+
   // the orb itself: 3-tone radial gradient (coral highlight -> base -> crimson)
   ctx.save();
   ctx.shadowColor = fill;
@@ -1352,6 +1434,8 @@ function drawBase() {
   ctx.arc(PLAYER.x, PLAYER.y, r - borderWidth * 0.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+
+  ctx.restore(); // end squish & stretch transform
 
   if (state.playerHp !== undefined) {
     drawObjectHp(PLAYER.x, PLAYER.y - PLACE.startSize - 12, PLACE.startSize * 1.8, state.playerHp, COMBAT.player.health);
@@ -1950,146 +2034,6 @@ canvas.addEventListener("click", (e) => {
   draw();
 });
 
-/* ---------- TOOL BUTTON ICONS (canvas) ---------- */
-/* Prepare a 48x48 button icon canvas and hand back its context */
-function iconContext(id) {
-  const icon = document.getElementById(id);
-  if (!icon) return null;
-
-  const size = 48;
-  const dpr = window.devicePixelRatio || 1;
-  icon.width = size * dpr;
-  icon.height = size * dpr;
-
-  const ictx = icon.getContext("2d");
-  ictx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ictx.clearRect(0, 0, size, size);
-  return { ictx, size };
-}
-
-/* Wall icon: a gradient coral/crimson orb with a gray border */
-function drawWallIcon() {
-  const icon = iconContext("wall-icon");
-  if (!icon) return;
-
-  const { ictx, size } = icon;
-  ictx.beginPath();
-  ictx.arc(size / 2, size / 2, size * 0.32, 0, Math.PI * 2);
-  ictx.fillStyle = orbGradient(ictx, size / 2, size / 2, size * 0.32, BUILD_STYLE.fill);
-  ictx.fill();
-  ictx.lineWidth = 3;
-  ictx.strokeStyle = BUILD_STYLE.border;
-  ictx.stroke();
-}
-
-/* Turret icon: same red circle, with the gray pipe pointing up */
-function drawTurretIcon() {
-  const icon = iconContext("turret-icon");
-  if (!icon) return;
-
-  const { ictx, size } = icon;
-  paintTurret(ictx, size / 2, size / 2, size * 0.3, -Math.PI / 2, BARREL.simple);
-}
-
-/* Sniper icon: like the turret, with the longer barrel */
-function drawSniperIcon() {
-  const icon = iconContext("sniper-icon");
-  if (!icon) return;
-
-  const { ictx, size } = icon;
-  paintTurret(ictx, size / 2, size / 2, size * 0.3, -Math.PI / 2, BARREL.sniper);
-}
-
-/* Generator icon: the red hexagon with its inner gray hexagon */
-function drawGeneratorIcon() {
-  const icon = iconContext("generator-icon");
-  if (!icon) return;
-
-  const { ictx, size } = icon;
-  paintGenerator(ictx, size / 2, size / 2, size * 0.36);
-}
-
-/* House icon: the red pentagon with its inner gray pentagon */
-function drawHouseIcon() {
-  const icon = iconContext("house-icon");
-  if (!icon) return;
-
-  const { ictx, size } = icon;
-  paintHouse(ictx, size / 2, size / 2, size * 0.36);
-}
-
-/* Tent icon: the red square with its inner gray square */
-function drawTentIcon() {
-  const icon = iconContext("tent-icon");
-  if (!icon) return;
-
-  const { ictx, size } = icon;
-  paintTent(ictx, size / 2, size / 2, size * 0.34);
-}
-
-/* Armory icon: the red circle with its gray control circle + four turrets */
-function drawArmoryIcon() {
-  const icon = iconContext("armory-icon");
-  if (!icon) return;
-
-  const { ictx, size } = icon;
-  paintArmory(ictx, size / 2, size / 2, size * 0.34);
-}
-
-/* Swap icon: two opposing arrows (exchange) */
-function drawSwapIcon() {
-  const icon = iconContext("swap-icon");
-  if (!icon) return;
-
-  const { ictx } = icon;
-  ictx.lineWidth = 3.5;
-  ictx.strokeStyle = "#e9eef6";
-  ictx.lineCap = "round";
-  ictx.lineJoin = "round";
-
-  ictx.beginPath();
-  // top arrow pointing right
-  ictx.moveTo(8, 16);
-  ictx.lineTo(36, 16);
-  ictx.moveTo(28, 9);
-  ictx.lineTo(36, 16);
-  ictx.lineTo(28, 23);
-  // bottom arrow pointing left
-  ictx.moveTo(40, 32);
-  ictx.lineTo(12, 32);
-  ictx.moveTo(20, 25);
-  ictx.lineTo(12, 32);
-  ictx.lineTo(20, 39);
-  ictx.stroke();
-}
-
-/* Delete icon: a trash can */
-function drawDeleteIcon() {
-  const icon = iconContext("delete-icon");
-  if (!icon) return;
-
-  const { ictx } = icon;
-  ictx.lineWidth = 3;
-  ictx.strokeStyle = "#e9eef6";
-  ictx.lineCap = "round";
-  ictx.lineJoin = "round";
-
-  ictx.strokeRect(21, 7, 6, 5); // handle
-
-  ictx.beginPath(); // lid
-  ictx.moveTo(11, 15);
-  ictx.lineTo(37, 15);
-  ictx.stroke();
-
-  ictx.beginPath(); // body
-  ictx.moveTo(15, 18);
-  ictx.lineTo(33, 18);
-  ictx.lineTo(31, 40);
-  ictx.lineTo(17, 40);
-  ictx.closePath();
-  ictx.stroke();
-}
-
 function initToolButtons() {
   for (const tool of TOOL_BUTTONS) {
     const button = document.getElementById(tool.id);
@@ -2141,17 +2085,9 @@ function setPlayerColor(hex) {
   BUILD_STYLE.fill = hex;
   STYLE.circle.fill = hex;
 
-  // let the CSS HUD mirror the chosen color (selected buttons, focus rings, ...)
+  // let the CSS HUD mirror the chosen color (selected buttons, focus rings, and
+  // the sidebar SVG icons via the --player-color token in their gradients)
   document.documentElement.style.setProperty("--player-color", hex);
-
-  // tool icons use the player color too
-  drawWallIcon();
-  drawTurretIcon();
-  drawSniperIcon();
-  drawGeneratorIcon();
-  drawHouseIcon();
-  drawArmoryIcon();
-  drawTentIcon();
 }
 
 function startGame() {
@@ -2195,15 +2131,6 @@ window.addEventListener("resize", resize);
 
 window.addEventListener("DOMContentLoaded", () => {
   resize();
-  drawWallIcon();
-  drawTurretIcon();
-  drawGeneratorIcon();
-  drawHouseIcon();
-  drawSniperIcon();
-  drawArmoryIcon();
-  drawTentIcon();
-  drawSwapIcon();
-  drawDeleteIcon();
   initToolButtons();
   refreshPowerUI();
   bindMenu();

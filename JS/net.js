@@ -82,6 +82,8 @@ function netMessage(raw) {
     PLAYER.y = msg.y;
     camera.x = msg.x;
     camera.y = msg.y;
+    camera.tx = msg.x;
+    camera.ty = msg.y;
 
     net.mySafe = msg.safe;
     net.myPvp = false;
@@ -390,15 +392,58 @@ function drawSafeRing(x, y) {
   ctx.restore();
 }
 
+/* Status pill under the base name: a translucent glass capsule with a thin
+   colored border, a softly glowing, flashing status dot and high-contrast text.
+   `color` tints the border/dot/glow to match the status (mint = protected,
+   red = PvP). `y` is the bottom edge of the pill. */
 function drawStatusLabel(x, y, text, color) {
-  ctx.font = "800 14px 'Montserrat', system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(4, 10, 20, 0.85)";
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
+  const t = typeof FX === "object" && FX && FX.t ? FX.t : performance.now() / 1000;
+
+  ctx.save();
+  ctx.font = "800 12px 'Montserrat', system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+
+  const label = text;
+  const padX = 13;
+  const h = 24;
+  const gap = 7;
+  const dotR = 3.6;
+  const tw = ctx.measureText(label).width;
+  const w = padX * 2 + dotR * 2 + gap + tw;
+  const left = x - w / 2;
+  const top = y - h;
+
+  // translucent glass capsule with a thin status-colored edge
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(left, top, w, h, h / 2);
+  else ctx.rect(left, top, w, h);
+  ctx.fillStyle = "rgba(7, 16, 27, 0.62)";
+  ctx.fill();
+  ctx.lineWidth = 1.25;
+  ctx.strokeStyle = colorWithAlpha(color, 0.6);
+  ctx.shadowColor = colorWithAlpha(color, 0.5);
+  ctx.shadowBlur = 10;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // bright, flashing status dot on the left
+  const flash = 0.5 + 0.5 * Math.sin(t * 6);
+  const cx = left + padX + dotR;
+  const cy = top + h / 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+  ctx.fillStyle = colorWithAlpha(color, 0.4 + 0.6 * flash);
+  ctx.shadowColor = colorWithAlpha(color, 0.9);
+  ctx.shadowBlur = 7 + 6 * flash;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // label
+  ctx.fillStyle = "#eef6ff";
+  ctx.fillText(label, cx + dotR + gap, cy + 0.5);
+
+  ctx.restore();
 }
 
 /* ---------- leaderboard ---------- */
