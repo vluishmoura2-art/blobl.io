@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Ccircle%20cx='8'%20cy='8'%20r='7'%20fill='%23e03b3b'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="CSS/style.css" />
 </head>
 <body>
@@ -51,16 +51,36 @@
   </button>
 
   <div id="power-box" role="status" aria-live="polite" aria-label="Power">
-    <span id="power-label">Power</span>
-    <span id="power-value">200</span>
+    <svg id="power-bolt" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M13 2 4.8 13.6a.6.6 0 0 0 .47.98H11l-1.2 7.1a.55.55 0 0 0 .97.42L19.2 10.4a.6.6 0 0 0-.47-.98H13l1.4-6.86a.55.55 0 0 0-.97-.42L13 2Z" />
+    </svg>
+    <span id="power-text">
+      <span id="power-label">Power</span>
+      <span id="power-value">200</span>
+    </span>
   </div>
 
   <div id="leaderboard">
-    <div id="leaderboard-title">Leaderboard</div>
+    <div id="leaderboard-title">
+      <svg id="trophy-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 3h10v2h3.5v2.5A4.5 4.5 0 0 1 16 12h-.6a5 5 0 0 1-2.4 3.6l.5 2.9H17v2H7v-2h3.5l.5-2.9A5 5 0 0 1 8.6 12H8a4.5 4.5 0 0 1-4.5-4.5V5H7V3ZM6.5 7v3A2.5 2.5 0 0 0 9 12.5V7H6.5Zm11 0v5.5A2.5 2.5 0 0 0 17.5 10V7H17.5Z" />
+      </svg>
+      <span>Leaderboard</span>
+    </div>
     <div id="leaderboard-list"><div class="lb-row">No players</div></div>
     <div id="connection-status">Offline</div>
-    <div id="mp-hint">Space = enable PvP · M = sound</div>
-    <div id="audio-state">sound on</div>
+    <div id="mp-hint">Space = enable PvP</div>
+    <div id="audio-state" title="M = toggle sound">
+      <svg id="speaker-on" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4v-5Z" />
+        <path d="M15 9.2a4 4 0 0 1 0 5.6" class="wave" />
+        <path d="M17.6 6.6a7.5 7.5 0 0 1 0 10.8" class="wave" />
+      </svg>
+      <svg id="speaker-off" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4v-5Z" />
+        <path d="m15.4 9.6 4.4 4.8M19.8 9.6l-4.4 4.8" class="wave" />
+      </svg>
+    </div>
   </div>
 
   <div id="achievements" aria-label="Achievements">

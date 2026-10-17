@@ -119,7 +119,10 @@ const Sfx = (() => {
 
   function updateBadge() {
     const el = document.getElementById("audio-state");
-    if (el) el.textContent = muted ? "sound off" : "sound on";
+    if (!el) return;
+    // mute toggles which vector speaker icon is visible (on = waves, off = cross)
+    el.classList.toggle("muted", muted);
+    el.setAttribute("aria-label", muted ? "Sound off" : "Sound on");
   }
 
   window.addEventListener("keydown", (e) => {

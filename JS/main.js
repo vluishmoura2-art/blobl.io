@@ -41,24 +41,24 @@ const ctx = canvas.getContext("2d");
 
 /* ---------- STYLE (map / base design) ---------- */
 const STYLE = {
-  background: "#ffffff",
+  background: "#081321",
 
   grid: {
     size: 50, // spacing between grid lines
-    color: "#dde3ec", // soft, light grid so it doesn't fight the action
-    lineWidth: 0.8,
+    color: "rgba(126, 168, 214, 0.10)", // very thin, elegant bluish lines
+    major: "rgba(126, 168, 214, 0.20)", // every 5th line, slightly brighter
+    lineWidth: 1,
   },
 
   area: {
     margin: 48, // gap between the arena edge and the canvas edge
-    border: "#6b788c",
-    borderWidth: 6,
+    border: "#3f8fe0",
+    borderWidth: 3,
   },
 
   circle: {
     fill: "#e03b3b",
-    border: "#ff5a5a",
-    borderWidth: 8,
+    borderWidth: 6,
   },
 };
 
@@ -69,9 +69,9 @@ const PLACE = {
   epsilon: 0.15, // exact fudge factor used by game.js
   gap: 8, // fixed breathing room so orbitals don't kiss the base rim
 
-  validFill: "rgba(120, 128, 140, 0.26)", // gray ghost (placeable)
-  invalidFill: "rgba(255, 0, 0, 0.12)", // red ghost (overlap)
-  indicator: "rgba(0, 0, 0, 0.08)", // build-limit ring color (indicatorColor)
+  validFill: "rgba(126, 168, 214, 0.18)", // bluish ghost (placeable)
+  invalidFill: "rgba(255, 70, 70, 0.16)", // red ghost (overlap)
+  indicator: "rgba(150, 195, 240, 0.26)", // build-limit ring color (active reach)
   dashed: [55, 12], // dash pattern used by Bloble for its rings
 };
 
@@ -105,7 +105,7 @@ if (typeof COMBAT !== "undefined" && Array.isArray(COMBAT.buildingStats)) {
   }
 }
 
-/* Placed-building look (unchanged wall design: red bg, gray border) */
+/* Placed-building look (gradient coral/crimson body, gray border) */
 const BUILD_STYLE = {
   fill: "#e03b3b",
   border: "#6b788c",
@@ -114,6 +114,30 @@ const BUILD_STYLE = {
 
 /* Turret pipe (barrel) color - Bloble's turretColor */
 const PIPE = { color: "#A8A8A8" };
+
+/* ---------- GRADIENT HELPERS ---------- */
+/* Blend a hex color toward white (amt > 0) or black (amt < 0) */
+function darkenHex(hex, amt) {
+  const n = parseInt(String(hex).slice(1), 16);
+  const c = (v) => Math.max(0, Math.min(255, v));
+  const r = c(((n >> 16) & 255) - amt);
+  const g = c(((n >> 8) & 255) - amt);
+  const b = c((n & 255) - amt);
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+/* 3-tone radial gradient (highlight -> base -> shadow) so flat fills read as
+   lit orbs. Falls back to the raw color when a non-hex fill is passed. */
+function orbGradient(g, cx, cy, r, hex) {
+  const base = hex || BUILD_STYLE.fill;
+  if (typeof base !== "string" || base.charAt(0) !== "#") return base;
+
+  const grad = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.15, cx, cy, r * 1.05);
+  grad.addColorStop(0, lightenHex(base, 60));
+  grad.addColorStop(0.55, base);
+  grad.addColorStop(1, darkenHex(base, 65));
+  return grad;
+}
 
 /* ---------- POWER / COST SYSTEM ---------- */
 const POWER = {
@@ -188,9 +212,9 @@ const drag = { active: false, building: null };
 const MAP = {
   width: 3000,
   height: 3000,
-  background: "#ffffff",
-  border: "#000000",
-  borderWidth: 12,
+  background: "#081321",
+  border: "#1c3a5c",
+  borderWidth: 10,
 };
 
 /* ---------- PLAYER / BASE (fixed in world space) ---------- */
@@ -617,7 +641,7 @@ function paintSoldier(g, cx, cy, size, dir, fill, kind) {
   }
   g.closePath();
 
-  g.fillStyle = fill || BUILD_STYLE.fill;
+  g.fillStyle = orbGradient(g, cx, cy, size, fill);
   g.fill();
   g.lineWidth = SOLDIER.borderWidth;
   g.strokeStyle = BUILD_STYLE.border;
@@ -665,13 +689,48 @@ function drawObjectHp(x, y, w, hp, max) {
   const x0 = x - w / 2;
   const frac = Math.max(0, Math.min(1, hp / max));
 
-  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.save();
+  ctx.fillStyle = "rgba(6, 12, 22, 0.7)";
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(x0, y, w, h, 3);
+    ctx.fill();
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x0, y, w * frac, h, 3);
+    ctx.clip();
+  } else {
+    ctx.fillRect(x0, y, w, h);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, y, w * frac, h);
+    ctx.clip();
+  }
+
+  // gradient fill: green while healthy, coral/crimson when low
+  const good = frac > 0.35;
+  const grad = ctx.createLinearGradient(x0, y, x0 + w, y);
+  if (good) {
+    grad.addColorStop(0, "#5ef29a");
+    grad.addColorStop(1, "#22b06a");
+  } else {
+    grad.addColorStop(0, "#ff8a6a");
+    grad.addColorStop(1, "#d0243c");
+  }
+  ctx.fillStyle = grad;
   ctx.fillRect(x0, y, w, h);
-  ctx.fillStyle = frac > 0.35 ? "#2fcf4f" : "#e03939";
-  ctx.fillRect(x0, y, w * frac, h);
+  ctx.restore();
+
   ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
-  ctx.strokeRect(x0, y, w, h);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(x0, y, w, h, 3);
+    ctx.stroke();
+  } else {
+    ctx.strokeRect(x0, y, w, h);
+  }
+  ctx.restore();
 }
 
 /* ---------- AMBIENCE (background effects) ---------- */
@@ -722,16 +781,17 @@ function burst(x, y, color, count, speed) {
 function spawnParticle() {
   return {
     fx: Math.random(),
-    r: 2 + Math.random() * 6,
+    r: 0.8 + Math.random() * 2.2,
     speed: 7 + Math.random() * 12,
     wobble: 0.5 + Math.random() * 1.4,
     phase: Math.random() * Math.PI * 2,
-    alpha: 0.05 + Math.random() * 0.11,
+    alpha: 0.12 + Math.random() * 0.3,
+    twinkle: 0.4 + Math.random() * 1.8, // per-mote flicker rate
   };
 }
 
 function ensureParticles(w, h) {
-  const target = Math.round(w * h / 52000) + 6;
+  const target = Math.round(w * h / 26000) + 14;
   while (FX.particles.length < target) FX.particles.push(spawnParticle());
   if (FX.particles.length > target) FX.particles.length = target;
 }
@@ -746,25 +806,38 @@ function drawAmbience(time, w, h) {
   ctx.rect(0, 0, MAP.width, MAP.height);
   ctx.clip();
 
-  // gently drifting gradient overlay (cool tint, very low opacity)
+  // gently drifting caustic light, cool and very low opacity
   const sx = w / 2 + Math.cos(t * 0.12) * w * 0.3;
   const sy = h / 2 + Math.sin(t * 0.09) * h * 0.28;
   const gx = camera.x + (sx - w / 2);
   const gy = camera.y + (sy - h / 2);
   const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(w, h) * 0.85);
-  grad.addColorStop(0, "rgba(186, 208, 240, 0.18)");
-  grad.addColorStop(0.6, "rgba(224, 234, 248, 0.07)");
-  grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+  grad.addColorStop(0, "rgba(84, 150, 220, 0.14)");
+  grad.addColorStop(0.6, "rgba(60, 110, 170, 0.05)");
+  grad.addColorStop(1, "rgba(0, 0, 0, 0)");
   ctx.fillStyle = grad;
   ctx.fillRect(camera.x - w / 2, camera.y - h / 2, w, h);
 
-  // floating bubbles drifting up, looping forever
+  // ambient dust: soft, slowly drifting motes that twinkle as they rise
   for (const p of FX.particles) {
     const py = h + 24 - ((t * p.speed + p.phase * 40) % (h + 48));
     const px = p.fx * w + Math.sin(t * p.wobble + p.phase * 2.3) * 14;
+    const wx = camera.x + (px - w / 2);
+    const wy = camera.y + (py - h / 2);
+    const flicker = 0.6 + 0.4 * Math.sin(t * p.twinkle + p.phase * 5);
+
+    // tiny glow halo + bright core = floating light dust
+    const halo = ctx.createRadialGradient(wx, wy, 0, wx, wy, p.r * 3.4);
+    halo.addColorStop(0, "rgba(150, 200, 250, " + (p.alpha * flicker * 0.7).toFixed(3) + ")");
+    halo.addColorStop(1, "rgba(150, 200, 250, 0)");
+    ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.arc(camera.x + (px - w / 2), camera.y + (py - h / 2), p.r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(130, 150, 178, " + p.alpha.toFixed(3) + ")";
+    ctx.arc(wx, wy, p.r * 3.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(wx, wy, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(214, 234, 255, " + (p.alpha * flicker).toFixed(3) + ")";
     ctx.fill();
   }
 
@@ -965,11 +1038,32 @@ function draw(time = performance.now()) {
   ctx.restore();
 
   ctx.restore();
+
+  // screen-space vignette: grid is subtly lit toward the middle, darker at the
+  // edges, so the eye stays on the action
+  const vig = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.32, w / 2, h / 2, Math.max(w, h) * 0.78);
+  vig.addColorStop(0, "rgba(4, 10, 20, 0)");
+  vig.addColorStop(0.65, "rgba(4, 10, 20, 0.28)");
+  vig.addColorStop(1, "rgba(2, 6, 14, 0.62)");
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, w, h);
 }
 
-/* Large map: white background + black border */
+/* Deep-ocean map: layered radial + linear gradients instead of flat white */
 function drawMap() {
-  ctx.fillStyle = MAP.background;
+  const g = ctx.createLinearGradient(0, 0, MAP.width, MAP.height);
+  g.addColorStop(0, "#0a1a2e");
+  g.addColorStop(0.5, "#081321");
+  g.addColorStop(1, "#060f1c");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, MAP.width, MAP.height);
+
+  // soft central light pool, like sun through water over the play area
+  const glow = ctx.createRadialGradient(PLAYER.x, PLAYER.y, 0, PLAYER.x, PLAYER.y, MAP.width * 0.55);
+  glow.addColorStop(0, "rgba(56, 120, 190, 0.16)");
+  glow.addColorStop(0.55, "rgba(40, 90, 150, 0.06)");
+  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = glow;
   ctx.fillRect(0, 0, MAP.width, MAP.height);
 
   ctx.lineWidth = MAP.borderWidth;
@@ -977,23 +1071,43 @@ function drawMap() {
   ctx.strokeRect(0, 0, MAP.width, MAP.height);
 }
 
-/* Gray grid tiled across the map */
+/* Very thin, elegant bluish grid: minor lines every `size`, a brighter
+   major line every 5th so the ocean floor reads like a chart. */
 function drawGrid() {
-  const { size, color, lineWidth } = STYLE.grid;
+  const { size, color, major, lineWidth } = STYLE.grid;
 
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, MAP.width, MAP.height);
   ctx.clip();
 
-  ctx.strokeStyle = color;
+  const majorEvery = size * 5;
+
   ctx.lineWidth = lineWidth;
+
+  // minor lines
+  ctx.strokeStyle = color;
   ctx.beginPath();
   for (let x = 0; x <= MAP.width; x += size) {
+    if (x % majorEvery === 0) continue;
     ctx.moveTo(x, 0);
     ctx.lineTo(x, MAP.height);
   }
   for (let y = 0; y <= MAP.height; y += size) {
+    if (y % majorEvery === 0) continue;
+    ctx.moveTo(0, y);
+    ctx.lineTo(MAP.width, y);
+  }
+  ctx.stroke();
+
+  // major lines (every 5th)
+  ctx.strokeStyle = major;
+  ctx.beginPath();
+  for (let x = 0; x <= MAP.width; x += majorEvery) {
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, MAP.height);
+  }
+  for (let y = 0; y <= MAP.height; y += majorEvery) {
     ctx.moveTo(0, y);
     ctx.lineTo(MAP.width, y);
   }
@@ -1002,30 +1116,62 @@ function drawGrid() {
   ctx.restore();
 }
 
-/* Gray circular "area" border around the play field (soft pulsing glow) */
+/* Reach ring: a soft gradient force field around the play field. The stroke
+   uses a conic gradient that slowly rotates, plus a breathing opacity pulse. */
 function drawArea(w, h) {
   const { margin, border, borderWidth } = STYLE.area;
   const r = Math.min(w, h) / 2 - margin;
   if (r <= 0) return; // viewport too small to draw the ring
   const pulse = 0.5 + 0.5 * Math.sin(FX.t * 1.1);
 
+  ctx.save();
+  ctx.globalAlpha = 0.62 + 0.32 * pulse;
+  ctx.lineWidth = borderWidth;
+
+  if (typeof ctx.createConicGradient === "function") {
+    const spin = FX.t * 0.22; // slow rotation
+    const conic = ctx.createConicGradient(spin, PLAYER.x, PLAYER.y);
+    conic.addColorStop(0, "#8fd4ff");
+    conic.addColorStop(0.25, "rgba(63, 143, 224, 0.45)");
+    conic.addColorStop(0.5, "#4fb0a8");
+    conic.addColorStop(0.75, "rgba(63, 143, 224, 0.45)");
+    conic.addColorStop(1, "#8fd4ff");
+    ctx.strokeStyle = conic;
+  } else {
+    ctx.strokeStyle = border;
+  }
+
+  ctx.shadowColor = border;
+  ctx.shadowBlur = 12 + 8 * pulse;
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, r, 0, Math.PI * 2);
-  ctx.save();
-  ctx.shadowColor = border;
-  ctx.shadowBlur = 10 + 6 * pulse;
-  ctx.lineWidth = borderWidth;
-  ctx.strokeStyle = border;
   ctx.stroke();
+  ctx.restore();
+
+  // inner pulsing halo so the boundary reads as an active barrier
+  ctx.save();
+  const halo = ctx.createRadialGradient(PLAYER.x, PLAYER.y, r * 0.9, PLAYER.x, PLAYER.y, r * 1.06);
+  halo.addColorStop(0, "rgba(88, 182, 255, 0)");
+  halo.addColorStop(0.55, "rgba(88, 182, 255, " + (0.05 + 0.05 * pulse).toFixed(3) + ")");
+  halo.addColorStop(1, "rgba(88, 182, 255, 0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(PLAYER.x, PLAYER.y, r * 1.06, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
-/* Bloble-style dotted rings: base edge (startSize) + build limit (buildRange) */
+/* Bloble-style dotted rings: base edge (startSize) + build limit (buildRange).
+   Thin bluish strokes with a slow pulse so the build reach reads as active. */
 function drawRangeIndicators() {
+  const pulse = 0.5 + 0.5 * Math.sin(FX.t * 1.6);
+
   ctx.save();
   ctx.setLineDash(PLACE.dashed);
+  ctx.lineDashOffset = -FX.t * 14; // slow drift, like a rotating field
   ctx.lineWidth = 2;
   ctx.strokeStyle = PLACE.indicator;
+  ctx.globalAlpha = 0.55 + 0.3 * pulse;
 
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, PLACE.buildRange, 0, Math.PI * 2);
@@ -1052,10 +1198,10 @@ function drawBaseLabel(x, y, name, tagId) {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "900 " + size + "px 'Nunito', system-ui, sans-serif";
+  ctx.font = "900 " + size + "px 'Montserrat', system-ui, sans-serif";
   while (size > 9 && ctx.measureText(name).width > maxWidth) {
     size -= 1;
-    ctx.font = "900 " + size + "px 'Nunito', system-ui, sans-serif";
+    ctx.font = "900 " + size + "px 'Montserrat', system-ui, sans-serif";
   }
 
   ctx.lineJoin = "round";
@@ -1070,14 +1216,14 @@ function drawBaseLabel(x, y, name, tagId) {
   if (tagId) drawBaseTag(x, y + size * 0.5 + 13, tagId);
 }
 
-/* Small red badge (black border, white text) carrying an earned achievement's
-   name, sitting under the base name. */
+/* Small gradient badge (thin glass border, white text) carrying an earned
+   achievement's name, sitting under the base name. */
 function drawBaseTag(x, y, tagId) {
   const label = typeof getAchievementName === "function" ? getAchievementName(tagId) : null;
   if (!label) return;
 
   ctx.save();
-  ctx.font = "800 11px 'Nunito', system-ui, sans-serif";
+  ctx.font = "800 11px 'Montserrat', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
@@ -1086,12 +1232,17 @@ function drawBaseTag(x, y, tagId) {
   const w = ctx.measureText(label).width + padX * 2;
 
   ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h / 2, w, h, 7);
+  if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h / 2, w, h, 9);
   else ctx.rect(x - w / 2, y - h / 2, w, h);
-  ctx.fillStyle = "#e03b3b";
+
+  const base = BUILD_STYLE.fill;
+  const grad = ctx.createLinearGradient(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
+  grad.addColorStop(0, lightenHex(base, 55));
+  grad.addColorStop(1, darkenHex(base, 45));
+  ctx.fillStyle = grad;
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
   ctx.stroke();
 
   ctx.fillStyle = "#ffffff";
@@ -1104,46 +1255,102 @@ function drawBaseName() {
   drawBaseLabel(PLAYER.x, PLAYER.y, PROFILE.name, PROFILE.tag);
 }
 
-/* Red base circle (radius = Bloble startSize) with a soft pulsing aura */
+/* Base circle (radius = Bloble startSize): a coral->crimson gradient orb with
+   a gradient neon rim and a breathing aura ring that reads as real-time light. */
 function drawBase() {
-  const { fill, border, borderWidth } = STYLE.circle;
+  const { fill, borderWidth } = STYLE.circle;
   const t = FX.t; // seconds, shared with the ambience pass
   // two detuned sine waves so the base never reads as a metronome
   const b1 = 0.5 + 0.5 * Math.sin(t * 2.4);
   const b2 = 0.5 + 0.5 * Math.sin(t * 1.3 + 1.9);
+  const r = PLACE.startSize;
+  const light = lightenHex(fill, 60);
+  const deep = darkenHex(fill, 70);
 
-  // breathing aura behind the base
-  const glowR = PLACE.startSize * (1.45 + 0.08 * b1);
-  const aura = ctx.createRadialGradient(PLAYER.x, PLAYER.y, PLACE.startSize * 0.55, PLAYER.x, PLAYER.y, glowR);
-  aura.addColorStop(0, colorWithAlpha(fill, 0.18 + 0.1 * b1 + 0.05 * b2));
+  // breathing aura behind the base (soft radial bloom)
+  const glowR = r * (1.5 + 0.1 * b1);
+  const aura = ctx.createRadialGradient(PLAYER.x, PLAYER.y, r * 0.55, PLAYER.x, PLAYER.y, glowR);
+  aura.addColorStop(0, colorWithAlpha(light, 0.2 + 0.1 * b1 + 0.05 * b2));
+  aura.addColorStop(0.55, colorWithAlpha(fill, 0.12 + 0.08 * b1));
   aura.addColorStop(1, colorWithAlpha(fill, 0));
   ctx.fillStyle = aura;
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, glowR, 0, Math.PI * 2);
   ctx.fill();
 
-  // traveling heartbeat ring: expands out and fades once every 3s
-  const ph = (t % 3) / 3;
+  // aura ring: gradient ring with a dynamic neon glow, slowly counter-rotating
   ctx.save();
-  ctx.strokeStyle = colorWithAlpha(fill, 0.55 * (1 - ph));
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2.5;
+  ctx.globalAlpha = 0.5 + 0.4 * b2;
+  if (typeof ctx.createConicGradient === "function") {
+    const ring = ctx.createConicGradient(-t * 0.4, PLAYER.x, PLAYER.y);
+    ring.addColorStop(0, light);
+    ring.addColorStop(0.3, colorWithAlpha(fill, 0.2));
+    ring.addColorStop(0.6, lightenHex(fill, 25));
+    ring.addColorStop(1, light);
+    ctx.strokeStyle = ring;
+  } else {
+    ctx.strokeStyle = light;
+  }
+  ctx.shadowColor = light;
+  ctx.shadowBlur = 14 + 10 * b1;
   ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, PLACE.startSize * (1.04 + 0.42 * ph), 0, Math.PI * 2);
+  ctx.arc(PLAYER.x, PLAYER.y, r * (1.12 + 0.03 * b1), 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 
-  // the circle itself, with a soft outer glow that breathes
+  // traveling heartbeat ring: expands out and fades once every 3s
+  const ph = (t % 3) / 3;
+  ctx.save();
+  ctx.strokeStyle = colorWithAlpha(light, 0.55 * (1 - ph));
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(PLAYER.x, PLAYER.y, r * (1.04 + 0.42 * ph), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // the orb itself: 3-tone radial gradient (coral highlight -> base -> crimson)
   ctx.save();
   ctx.shadowColor = fill;
-  ctx.shadowBlur = 14 + 12 * b1 + 4 * b2;
+  ctx.shadowBlur = 16 + 14 * b1 + 4 * b2;
   ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, PLACE.startSize, 0, Math.PI * 2);
-  ctx.fillStyle = fill;
+  ctx.arc(PLAYER.x, PLAYER.y, r, 0, Math.PI * 2);
+  const orb = ctx.createRadialGradient(PLAYER.x - r * 0.3, PLAYER.y - r * 0.38, r * 0.12, PLAYER.x, PLAYER.y, r * 1.02);
+  orb.addColorStop(0, lightenHex(fill, 75));
+  orb.addColorStop(0.45, light);
+  orb.addColorStop(1, deep);
+  ctx.fillStyle = orb;
   ctx.fill();
+  ctx.restore();
 
+  // rim: gradient stroke (bright top-left -> deep crimson bottom) + sheen
+  ctx.save();
   ctx.lineWidth = borderWidth;
-  ctx.strokeStyle = border;
+  const rim = ctx.createLinearGradient(PLAYER.x - r, PLAYER.y - r, PLAYER.x + r, PLAYER.y + r);
+  rim.addColorStop(0, lightenHex(fill, 90));
+  rim.addColorStop(0.5, lightenHex(fill, 25));
+  rim.addColorStop(1, darkenHex(fill, 30));
+  ctx.strokeStyle = rim;
+  ctx.beginPath();
+  ctx.arc(PLAYER.x, PLAYER.y, r, 0, Math.PI * 2);
   ctx.stroke();
+
+  // top-left specular sheen
+  const sheen = ctx.createRadialGradient(
+    PLAYER.x - r * 0.38,
+    PLAYER.y - r * 0.45,
+    0,
+    PLAYER.x - r * 0.38,
+    PLAYER.y - r * 0.45,
+    r * 0.95
+  );
+  sheen.addColorStop(0, "rgba(255, 255, 255, 0.34)");
+  sheen.addColorStop(0.45, "rgba(255, 255, 255, 0.06)");
+  sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
+  ctx.fillStyle = sheen;
+  ctx.beginPath();
+  ctx.arc(PLAYER.x, PLAYER.y, r - borderWidth * 0.5, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 
   if (state.playerHp !== undefined) {
@@ -1157,10 +1364,10 @@ function drawBase() {
    `barrel` is the pipe length as a multiple of the body radius.
    `fill` is overridable (per-player color in multiplayer). */
 function paintTurret(g, cx, cy, size, dir, barrel, fill) {
-  // Body circle (same design as a wall)
+  // Body circle (same design as a wall) with a soft 3-tone gradient
   g.beginPath();
   g.arc(cx, cy, size, 0, Math.PI * 2);
-  g.fillStyle = fill || BUILD_STYLE.fill;
+  g.fillStyle = orbGradient(g, cx, cy, size, fill);
   g.fill();
   g.lineWidth = BUILD_STYLE.borderWidth;
   g.strokeStyle = BUILD_STYLE.border;
@@ -1205,7 +1412,7 @@ function paintAgon(g, cx, cy, radius, sides, fill, border, lineWidth) {
   g.closePath();
 
   if (fill) {
-    g.fillStyle = fill;
+    g.fillStyle = orbGradient(g, cx, cy, radius, fill);
     g.fill();
   }
   if (border) {
@@ -1246,7 +1453,7 @@ function paintSquare(g, cx, cy, half, fill, border, lineWidth) {
   g.rect(cx - half, cy - half, half * 2, half * 2);
 
   if (fill) {
-    g.fillStyle = fill;
+    g.fillStyle = typeof fill === "string" ? orbGradient(g, cx, cy, half, fill) : fill;
     g.fill();
   }
   if (border) {
@@ -1260,7 +1467,7 @@ function paintSquare(g, cx, cy, half, fill, border, lineWidth) {
 function paintDisk(g, cx, cy, r, fill, border) {
   g.beginPath();
   g.arc(cx, cy, r, 0, Math.PI * 2);
-  g.fillStyle = fill;
+  g.fillStyle = typeof fill === "string" ? orbGradient(g, cx, cy, r, fill) : fill;
   g.fill();
   if (border) {
     g.lineWidth = BUILD_STYLE.borderWidth;
@@ -1394,7 +1601,7 @@ function drawBuildings() {
     } else {
       ctx.beginPath();
       ctx.arc(p.x, p.y, s, 0, Math.PI * 2);
-      ctx.fillStyle = BUILD_STYLE.fill;
+      ctx.fillStyle = orbGradient(ctx, p.x, p.y, s, BUILD_STYLE.fill);
       ctx.fill();
       ctx.lineWidth = BUILD_STYLE.borderWidth;
       ctx.strokeStyle = BUILD_STYLE.border;
@@ -1434,7 +1641,7 @@ function drawGhost(ghost) {
   ctx.fillStyle = ghost.valid ? PLACE.validFill : PLACE.invalidFill;
   ctx.fill();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = ghost.valid ? "#9aa3b0" : "#ff0000";
+  ctx.strokeStyle = ghost.valid ? "#7fb2e6" : "#ff5a5a";
   ctx.stroke();
   ctx.restore();
 }
@@ -1480,20 +1687,23 @@ function drawUpgradeHint(w, h) {
   const y = hit.y - hit.building.size - 16;
 
   ctx.save();
-  ctx.font = "bold 14px system-ui, sans-serif";
+  ctx.font = "800 14px 'Montserrat', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
   const padX = 10;
   const wText = ctx.measureText(text).width + padX * 2;
-  ctx.fillStyle = affordable ? "rgba(20, 26, 34, 0.82)" : "rgba(48, 18, 18, 0.82)";
+  ctx.fillStyle = affordable ? "rgba(14, 28, 46, 0.82)" : "rgba(48, 18, 24, 0.85)";
   ctx.beginPath();
   if (ctx.roundRect) {
-    ctx.roundRect(x - wText / 2, y - 12, wText, 24, 7);
+    ctx.roundRect(x - wText / 2, y - 12, wText, 24, 9);
   } else {
     ctx.rect(x - wText / 2, y - 12, wText, 24);
   }
   ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = affordable ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 120, 120, 0.4)";
+  ctx.stroke();
 
   ctx.fillStyle = affordable ? "#eaf2ff" : "#ff9b9b";
   ctx.fillText(text, x, y);
@@ -1757,7 +1967,7 @@ function iconContext(id) {
   return { ictx, size };
 }
 
-/* Wall icon: a red circle with a gray border */
+/* Wall icon: a gradient coral/crimson orb with a gray border */
 function drawWallIcon() {
   const icon = iconContext("wall-icon");
   if (!icon) return;
@@ -1765,7 +1975,7 @@ function drawWallIcon() {
   const { ictx, size } = icon;
   ictx.beginPath();
   ictx.arc(size / 2, size / 2, size * 0.32, 0, Math.PI * 2);
-  ictx.fillStyle = BUILD_STYLE.fill;
+  ictx.fillStyle = orbGradient(ictx, size / 2, size / 2, size * 0.32, BUILD_STYLE.fill);
   ictx.fill();
   ictx.lineWidth = 3;
   ictx.strokeStyle = BUILD_STYLE.border;
@@ -1930,7 +2140,6 @@ function setPlayerColor(hex) {
   PROFILE.color = hex;
   BUILD_STYLE.fill = hex;
   STYLE.circle.fill = hex;
-  STYLE.circle.border = lightenHex(hex, 45);
 
   // let the CSS HUD mirror the chosen color (selected buttons, focus rings, ...)
   document.documentElement.style.setProperty("--player-color", hex);

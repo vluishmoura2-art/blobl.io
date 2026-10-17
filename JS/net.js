@@ -271,16 +271,38 @@ function drawRemotePlayer(rp) {
   const cannons = (rp.u & COMBAT.upgradeFlags.cannons) !== 0;
   const cloaked = (rp.u & COMBAT.upgradeFlags.cloak) !== 0;
 
-  // base circle
+  // base circle: gradient orb with a gradient rim and neon glow (matches ours)
+  const light = lightenHex(color, 60);
+  const deep = darkenHex(color, 70);
   ctx.save();
   ctx.shadowColor = color;
   ctx.shadowBlur = 14 + 8 * pulse;
   ctx.beginPath();
   ctx.arc(rp.x, rp.y, PLACE.startSize, 0, Math.PI * 2);
-  ctx.fillStyle = color;
+  const orb = ctx.createRadialGradient(
+    rp.x - PLACE.startSize * 0.3,
+    rp.y - PLACE.startSize * 0.38,
+    PLACE.startSize * 0.12,
+    rp.x,
+    rp.y,
+    PLACE.startSize * 1.02
+  );
+  orb.addColorStop(0, lightenHex(color, 75));
+  orb.addColorStop(0.45, light);
+  orb.addColorStop(1, deep);
+  ctx.fillStyle = orb;
   ctx.fill();
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = shadeColor(color, 45);
+  ctx.lineWidth = 6;
+  const rim = ctx.createLinearGradient(
+    rp.x - PLACE.startSize,
+    rp.y - PLACE.startSize,
+    rp.x + PLACE.startSize,
+    rp.y + PLACE.startSize
+  );
+  rim.addColorStop(0, lightenHex(color, 90));
+  rim.addColorStop(0.5, lightenHex(color, 25));
+  rim.addColorStop(1, darkenHex(color, 30));
+  ctx.strokeStyle = rim;
   ctx.stroke();
   ctx.restore();
 
@@ -342,7 +364,7 @@ function paintRemoteBuilding(color, rb) {
     // default: plain circle (wall and everything else)
     ctx.beginPath();
     ctx.arc(rb.x, rb.y, b.size, 0, Math.PI * 2);
-    ctx.fillStyle = color;
+    ctx.fillStyle = orbGradient(ctx, rb.x, rb.y, b.size, color);
     ctx.fill();
     ctx.lineWidth = BUILD_STYLE.borderWidth;
     ctx.strokeStyle = BUILD_STYLE.border;
@@ -354,12 +376,14 @@ function paintRemoteBuilding(color, rb) {
   }
 }
 
-/* Green dashed ring marking a protected base */
+/* Green dashed ring marking a protected base (glass glow on the ocean) */
 function drawSafeRing(x, y) {
   ctx.save();
   ctx.setLineDash(PLACE.dashed);
   ctx.lineWidth = 4;
-  ctx.strokeStyle = "#2fcf4f";
+  ctx.strokeStyle = "#37d67a";
+  ctx.shadowColor = "rgba(55, 214, 122, 0.75)";
+  ctx.shadowBlur = 12;
   ctx.beginPath();
   ctx.arc(x, y, PLACE.startSize + 14, 0, Math.PI * 2);
   ctx.stroke();
@@ -367,11 +391,11 @@ function drawSafeRing(x, y) {
 }
 
 function drawStatusLabel(x, y, text, color) {
-  ctx.font = "800 14px 'Nunito', system-ui, sans-serif";
+  ctx.font = "800 14px 'Montserrat', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+  ctx.strokeStyle = "rgba(4, 10, 20, 0.85)";
   ctx.strokeText(text, x, y);
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
@@ -390,14 +414,18 @@ function refreshLeaderboard() {
 
   const rows = [...net.players.values()]
     .sort((a, b) => (b.power || 0) - (a.power || 0))
-    .map((p) => {
+    .map((p, i) => {
       const you = p.id === net.id;
       const cls = (you ? " you" : "") + (p.dead ? " dead" : "");
+      const rank = i === 0 ? '<span class="lb-rank lb-first">&#9733;</span>' : '<span class="lb-rank">' + (i + 1) + "</span>";
       return (
         '<div class="lb-row' + cls + '">' +
+        rank +
         '<span class="lb-dot" style="background:' + p.color + '"></span>' +
         '<span class="lb-name">' + escapeHtml(p.name) + "</span>" +
-        '<span class="lb-power">' + Math.floor(p.power || 0) + "</span>" +
+        '<span class="lb-power"><svg class="lb-bolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.8 13.6a.6.6 0 0 0 .47.98H11l-1.2 7.1a.55.55 0 0 0 .97.42L19.2 10.4a.6.6 0 0 0-.47-.98H13l1.4-6.86a.55.55 0 0 0-.97-.42L13 2Z"/></svg>' +
+        Math.floor(p.power || 0) +
+        "</span>" +
         "</div>"
       );
     })
@@ -417,13 +445,4 @@ function escapeHtml(s) {
     '"': "&quot;",
     "'": "&#39;",
   }[c]));
-}
-
-function shadeColor(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
-  const c = (v) => Math.max(0, Math.min(255, v));
-  const r = c(((n >> 16) & 255) + amt);
-  const g = c(((n >> 8) & 255) + amt);
-  const b = c((n & 255) + amt);
-  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
