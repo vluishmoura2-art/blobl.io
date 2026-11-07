@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - local game state, map rendering and input
+   hightide.io - local game state, map rendering and input
 
    Scene:
      - A nautical chart: paper, contour bands, soundings, compass roses

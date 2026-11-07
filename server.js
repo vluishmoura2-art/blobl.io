@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - multiplayer server
+   hightide.io - multiplayer server
 
    - No player limit (unlimited connections).
    - New players spawn close together (a ring around the map
@@ -699,7 +699,7 @@ function startServer(port = CONFIG.port) {
   const timer = setInterval(broadcastToAll, CONFIG.broadcastMs);
 
   server.listen(port, () => {
-    console.log(`Maré Alta server on http://localhost:${port}`);
+    console.log(`hightide.io server on http://localhost:${port}`);
     console.log(`Open several tabs to test multiplayer (no player limit).`);
   });
 

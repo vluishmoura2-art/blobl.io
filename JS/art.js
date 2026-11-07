@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - the game's drawings
+   hightide.io - the game's drawings
 
    Every piece on the map is drawn here, as flat ink on paper:
    an ink outline, a solid fill and no glow. The same functions

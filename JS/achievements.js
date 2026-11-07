@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - achievements
+   hightide.io - achievements
 
    - A panel under the leaderboard lists every achievement. It opens from the
      tab on the right edge of the screen and scrolls with the mouse wheel.

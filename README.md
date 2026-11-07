@@ -1,4 +1,4 @@
-# Maré Alta
+# hightide.io
 
 Jogo multiplayer de navegador, somente online: você ergue sua ilha, arma a costa, produz barcos e ataca as ilhas dos outros capitães.
 

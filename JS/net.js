@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - multiplayer client
+   hightide.io - multiplayer client
 
    Talks to server.js over a WebSocket:
      - receives its spawn point (base position) + everyone else

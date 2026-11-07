@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - the rules of the game, used by server.js AND the
+   hightide.io - the rules of the game, used by server.js AND the
    browser, so what the player sees can't drift from what the
    server enforces.
 

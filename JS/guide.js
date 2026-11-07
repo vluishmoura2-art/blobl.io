@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - first steps
+   hightide.io - first steps
 
    A short checklist beside the map, not a tutorial that stops
    the game. Each step ticks itself when the player does it, and
@@ -9,7 +9,7 @@
    finished or closed, it stays away (saved in this browser).
    ========================================================= */
 
-const GUIDE_DONE_KEY = "marealta.guideDone.v1";
+const GUIDE_DONE_KEY = "hightide.guideDone.v1";
 
 const GUIDE_STEPS = [
   {

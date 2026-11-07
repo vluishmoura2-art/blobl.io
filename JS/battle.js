@@ -1,7 +1,7 @@
 "use strict";
 
 /* =========================================================
-   Maré Alta - what a battle looks like
+   hightide.io - what a battle looks like
 
    The server decides all damage. This file only shows it: it
    aims the cannons, fires the shots, smooths other players'
