@@ -1,0 +1,463 @@
+"use strict";
+
+/* =========================================================
+   Maré Alta - what a battle looks like
+
+   The server decides all damage. This file only shows it: it
+   aims the cannons, fires the shots, smooths other players'
+   boats and draws the explosions the server reports. The aim
+   and shot rules mirror combatTick in server.js, so a cannon
+   fires at the boats that really are in its range.
+   ========================================================= */
+
+const SHOT = {
+  speed: 760, // world units per second
+  cooldown: { turret: 0.6, sniper: 1.4, island: 0.8, tank: 1.0, siege: 1.4 },
+  radius: { turret: 3, sniper: 3.5, island: 3, tank: 3, siege: 4.5 },
+  maxInFlight: 200,
+};
+
+const battle = {
+  shots: [],
+  blasts: [],
+  guns: new Map(), // shooter key -> { dir, cool, frame }
+  motion: new Map(), // boat key -> motion between two snapshots
+  health: new Map(), // piece key -> last known hp
+  hits: new Map(), // piece key -> time of the last hit
+  frame: 0,
+  lastAttackNotice: -Infinity,
+  sunkBy: null, // who sank our island
+};
+
+function resetBattle() {
+  battle.shots.length = 0;
+  battle.blasts.length = 0;
+  battle.guns.clear();
+  battle.motion.clear();
+  battle.health.clear();
+  battle.hits.clear();
+  battle.lastAttackNotice = -Infinity;
+  battle.sunkBy = null;
+}
+
+const MOTION_MS = 120; // a little over one snapshot interval
+
+function pieceKey(ownerId, uid) {
+  return ownerId + ":" + uid;
+}
+
+/* ---------- SMOOTH MOVEMENT OF OTHER PLAYERS' BOATS ---------- */
+
+function motionNow(entry, now) {
+  const t = Math.min(1, (now - entry.at) / MOTION_MS);
+  return {
+    x: entry.fromX + (entry.toX - entry.fromX) * t,
+    y: entry.fromY + (entry.toY - entry.fromY) * t,
+    dir: entry.dir,
+  };
+}
+
+/* Called for each snapshot. A boat glides from where it is drawn right now to
+   the position the server just reported, instead of jumping there. */
+function syncMotion(players) {
+  const now = performance.now();
+  const seen = new Set();
+
+  for (const p of players) {
+    if (p.id === net.id) continue;
+    for (const s of p.soldiers) {
+      const key = pieceKey(p.id, s.uid);
+      seen.add(key);
+      const entry = battle.motion.get(key);
+      if (entry) {
+        const at = motionNow(entry, now);
+        Object.assign(entry, { fromX: at.x, fromY: at.y, toX: s.x, toY: s.y, at: now, dir: s.dir || 0 });
+      } else {
+        battle.motion.set(key, { fromX: s.x, fromY: s.y, toX: s.x, toY: s.y, at: now, dir: s.dir || 0 });
+      }
+    }
+  }
+
+  for (const key of battle.motion.keys()) {
+    if (!seen.has(key)) battle.motion.delete(key);
+  }
+}
+
+/* Where to draw another player's boat this frame. */
+function boatPosition(ownerId, boat) {
+  const entry = battle.motion.get(pieceKey(ownerId, boat.uid));
+  return entry ? motionNow(entry, performance.now()) : { x: boat.x, y: boat.y, dir: boat.dir || 0 };
+}
+
+/* ---------- HIT FLASHES ---------- */
+
+function trackHit(key, hp) {
+  const before = battle.health.get(key);
+  if (before !== undefined && hp < before) battle.hits.set(key, performance.now());
+  battle.health.set(key, hp);
+}
+
+/* Compares each snapshot with the previous one to find what just took damage. */
+function syncHits(players) {
+  const seen = new Set();
+  const track = (key, hp) => {
+    seen.add(key);
+    trackHit(key, hp);
+  };
+
+  for (const p of players) {
+    track(pieceKey(p.id, "island"), p.health);
+    for (const b of p.buildings) track(pieceKey(p.id, b.uid), b.hp);
+    for (const s of p.soldiers) track(pieceKey(p.id, s.uid), s.hp);
+  }
+
+  for (const key of battle.health.keys()) {
+    if (!seen.has(key)) {
+      battle.health.delete(key);
+      battle.hits.delete(key);
+    }
+  }
+}
+
+/* A pale flash over a piece that was just hit. */
+function drawHitFlash(key, x, y, r) {
+  const at = battle.hits.get(key);
+  if (at === undefined) return;
+
+  const age = (performance.now() - at) / 140;
+  if (age >= 1) return;
+
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = colorWithAlpha(PAPER, 0.6 * (1 - age));
+  ctx.fill();
+}
+
+/* ---------- AIMING AND SHOOTING ---------- */
+
+/* The same view of every player, whether it comes from the local game or from
+   the server's snapshot. */
+function collectSides() {
+  const sides = [];
+
+  for (const rp of net.players.values()) {
+    if (rp.dead) continue;
+    const mine = rp.id === net.id;
+    const flags = mine ? state.upgrades : rp.u;
+
+    const buildings = mine
+      ? placement.placed.map((p) => ({ uid: p.uid, x: p.x, y: p.y, def: p.building, rest: buildingDir(p) }))
+      : rp.buildings.map((b) => ({ uid: b.uid, x: b.x, y: b.y, def: BUILDINGS[b.b], rest: b.dir || 0 }));
+
+    const boats = (mine ? soldiers : rp.soldiers).map((s) => {
+      const kind = s.kind || "soldier";
+      const at = mine ? s : boatPosition(rp.id, s);
+      return { uid: s.uid, x: at.x, y: at.y, kind, stat: COMBAT.units[kind] };
+    });
+
+    sides.push({
+      id: rp.id,
+      x: mine ? PLAYER.x : rp.x,
+      y: mine ? PLAYER.y : rp.y,
+      safe: mine ? net.mySafe : rp.safe,
+      cloaked: (flags & COMBAT.upgradeFlags.cloak) !== 0,
+      cannons: (flags & COMBAT.upgradeFlags.cannons) !== 0,
+      buildings,
+      boats,
+    });
+  }
+
+  return sides;
+}
+
+function gunState(key, rest) {
+  let gun = battle.guns.get(key);
+  if (!gun) {
+    gun = { dir: rest, cool: Math.random() * 0.4, frame: 0 };
+    battle.guns.set(key, gun);
+  }
+  gun.frame = battle.frame;
+  return gun;
+}
+
+/* Which way a cannon points right now; anything else keeps its own direction. */
+function aimOf(key, fallback) {
+  const gun = battle.guns.get(key);
+  return gun ? gun.dir : fallback;
+}
+
+function turnToward(current, wanted, amount) {
+  const diff = Math.atan2(Math.sin(wanted - current), Math.cos(wanted - current));
+  return current + diff * amount;
+}
+
+function fireShot(x, y, target, kind) {
+  if (battle.shots.length >= SHOT.maxInFlight) return;
+
+  const dist = Math.hypot(target.x - x, target.y - y);
+  battle.shots.push({
+    x,
+    y,
+    dx: (target.x - x) / (dist || 1),
+    dy: (target.y - y) / (dist || 1),
+    left: dist,
+    r: SHOT.radius[kind],
+  });
+}
+
+function nearestBoat(x, y, range, enemies, ignoreCloaked) {
+  let best = null;
+  let bestDist = range * range;
+
+  for (const side of enemies) {
+    for (const boat of side.boats) {
+      if (ignoreCloaked && side.cloaked && boat.kind !== "soldier") continue;
+      const d = (boat.x - x) ** 2 + (boat.y - y) ** 2;
+      if (d <= bestDist) {
+        bestDist = d;
+        best = boat;
+      }
+    }
+  }
+  return best;
+}
+
+/* Frigates and galleons with on-board cannons also fire at buildings and islands. */
+function nearestAnything(x, y, range, enemies) {
+  let best = nearestBoat(x, y, range, enemies, false);
+  let bestDist = best ? (best.x - x) ** 2 + (best.y - y) ** 2 : range * range;
+
+  for (const side of enemies) {
+    for (const target of [...side.buildings, side]) {
+      const d = (target.x - x) ** 2 + (target.y - y) ** 2;
+      if (d <= bestDist) {
+        bestDist = d;
+        best = target;
+      }
+    }
+  }
+  return best;
+}
+
+function updateGuns(side, enemies, dt) {
+  for (const building of side.buildings) {
+    const design = building.def && building.def.design;
+    if (design !== "turret" && design !== "sniper") continue;
+
+    const gun = gunState(pieceKey(side.id, building.uid), building.rest);
+    const target = side.safe ? null : nearestBoat(building.x, building.y, building.def.range, enemies, true);
+    const wanted = target ? Math.atan2(target.y - building.y, target.x - building.x) : building.rest;
+
+    gun.dir = turnToward(gun.dir, wanted, 1 - Math.exp(-dt * 9));
+    gun.cool -= dt;
+
+    const onTarget = Math.abs(Math.atan2(Math.sin(wanted - gun.dir), Math.cos(wanted - gun.dir))) < 0.2;
+    if (target && onTarget && gun.cool <= 0) {
+      gun.cool = SHOT.cooldown[design];
+      const reach = building.def.size * (design === "sniper" ? 1.55 : 1.12);
+      const muzzleX = building.x + Math.cos(gun.dir) * reach;
+      const muzzleY = building.y + Math.sin(gun.dir) * reach;
+      fireShot(muzzleX, muzzleY, target, design);
+      burst(muzzleX, muzzleY, INK, 4, 60);
+    }
+  }
+}
+
+function updateIslandAndBoatFire(side, enemies, dt) {
+  if (side.safe) return;
+
+  // the island defends its own coast
+  const island = gunState(pieceKey(side.id, "island"), 0);
+  island.cool -= dt;
+  const intruder = nearestBoat(side.x, side.y, COMBAT.player.attackRange, enemies, false);
+  if (intruder && island.cool <= 0) {
+    island.cool = SHOT.cooldown.island;
+    const a = Math.atan2(intruder.y - side.y, intruder.x - side.x);
+    fireShot(side.x + Math.cos(a) * PLACE.startSize, side.y + Math.sin(a) * PLACE.startSize, intruder, "island");
+  }
+
+  if (!side.cannons) return;
+  for (const boat of side.boats) {
+    if (boat.kind === "soldier") continue;
+    const gun = gunState(pieceKey(side.id, boat.uid), 0);
+    gun.cool -= dt;
+    const target = gun.cool <= 0 ? nearestAnything(boat.x, boat.y, boat.stat.range, enemies) : null;
+    if (target) {
+      gun.cool = SHOT.cooldown[boat.kind];
+      fireShot(boat.x, boat.y, target, boat.kind);
+    }
+  }
+}
+
+/* Boats ramming enemy pieces throw off splinters at the point of contact. */
+function updateRamming(side, enemies, dt) {
+  if (side.safe) return;
+
+  const { w, h } = viewSize();
+  const chance = dt * 7;
+
+  for (const boat of side.boats) {
+    if (Math.abs(boat.x - camera.x) > w / 2 + 60 || Math.abs(boat.y - camera.y) > h / 2 + 60) continue;
+
+    for (const enemy of enemies) {
+      const contact = (x, y, reach) => {
+        const d = Math.hypot(x - boat.x, y - boat.y);
+        if (d > reach || Math.random() > chance) return;
+        const along = boat.stat.size / (d || 1);
+        burst(boat.x + (x - boat.x) * along, boat.y + (y - boat.y) * along, INK, 3, 90);
+      };
+
+      contact(enemy.x, enemy.y, COMBAT.player.baseRadius + boat.stat.size);
+      for (const b of enemy.buildings) if (b.def) contact(b.x, b.y, b.def.size + boat.stat.size);
+      for (const other of enemy.boats) contact(other.x, other.y, other.stat.size + boat.stat.size);
+    }
+  }
+}
+
+function updateBattle(dt) {
+  battle.frame += 1;
+
+  for (let i = battle.shots.length - 1; i >= 0; i--) {
+    const shot = battle.shots[i];
+    const step = SHOT.speed * dt;
+    shot.x += shot.dx * step;
+    shot.y += shot.dy * step;
+    shot.left -= step;
+    if (shot.left <= 0) {
+      battle.shots.splice(i, 1);
+      FX.wake.push({ x: shot.x, y: shot.y, r: 3, life: 0.8 });
+      burst(shot.x, shot.y, INK, 3, 70);
+    }
+  }
+
+  for (let i = battle.blasts.length - 1; i >= 0; i--) {
+    battle.blasts[i].life -= dt * battle.blasts[i].fade;
+    if (battle.blasts[i].life <= 0) battle.blasts.splice(i, 1);
+  }
+
+  if (net.players.size === 0) return;
+
+  const sides = collectSides();
+  for (const side of sides) {
+    const enemies = sides.filter((other) => other !== side && !other.safe);
+    updateGuns(side, enemies, dt);
+    updateIslandAndBoatFire(side, enemies, dt);
+    updateRamming(side, enemies, dt);
+  }
+
+  // forget the guns of pieces that no longer exist, once in a while
+  if (battle.frame % 300 === 0) {
+    for (const [key, gun] of battle.guns) {
+      if (gun.frame < battle.frame - 300) battle.guns.delete(key);
+    }
+  }
+}
+
+function drawBlast(blast) {
+  const grow = 1 - blast.life;
+  const r = blast.size * (0.55 + 0.75 * Math.sqrt(grow));
+  const points = 11;
+
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, blast.life * 2);
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const a = (i / (points * 2)) * Math.PI * 2 + blast.spin;
+    const radius = i % 2 === 0 ? r : r * 0.62;
+    const x = blast.x + Math.cos(a) * radius;
+    const y = blast.y + Math.sin(a) * radius;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "#E8A33A";
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = INK;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(blast.x, blast.y, r * 0.34, 0, Math.PI * 2);
+  ctx.fillStyle = PAPER;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBattle() {
+  ctx.fillStyle = INK;
+  for (const shot of battle.shots) {
+    ctx.beginPath();
+    ctx.arc(shot.x, shot.y, shot.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (const blast of battle.blasts) drawBlast(blast);
+}
+
+/* ---------- EXPLOSIONS (reported by the server) ---------- */
+
+function explode(x, y, size, color) {
+  battle.blasts.push({ x, y, size, life: 1, fade: size > 60 ? 1.5 : 2.6, spin: Math.random() * Math.PI });
+  burst(x, y, color, Math.min(30, 8 + Math.floor(size / 3)), 120 + size * 2);
+  burst(x, y, INK, 8, 100 + size);
+}
+
+function handleBattleEvents(events) {
+  for (const event of events) {
+    explode(event.x, event.y, event.size, event.color);
+
+    const distance = Math.hypot(event.x - camera.x, event.y - camera.y);
+    if (distance < 900) addShake(event.t === "base" ? 7 : event.t === "building" ? 2.5 : 1);
+
+    if (event.t === "base" && event.owner === net.id) battle.sunkBy = event.killer;
+
+    if (event.t === "base" && event.owner !== net.id) {
+      const name = event.name || "Um capitão";
+      showToast(event.killer === net.id ? "Você afundou a ilha de " + name + "!" : name + " naufragou", event.killer === net.id ? "good" : "");
+    }
+  }
+}
+
+/* ---------- ON-SCREEN NOTICES ---------- */
+
+function showToast(text, kind) {
+  const box = document.getElementById("toasts");
+  if (!box) return;
+
+  for (const old of box.children) {
+    if (old.textContent === text) return; // already on screen
+  }
+  while (box.children.length >= 4) box.firstChild.remove();
+
+  const toast = document.createElement("div");
+  toast.className = "toast" + (kind ? " " + kind : "");
+  toast.textContent = text;
+  box.appendChild(toast);
+  setTimeout(() => toast.remove(), 3200);
+}
+
+/* The screen edge flashes on every hit; the written warning comes only when an
+   attack begins, not on every shot. */
+function notifyIslandHit() {
+  const edge = document.getElementById("damage-edge");
+  if (edge) {
+    edge.classList.remove("hit");
+    void edge.offsetWidth; // restart the flash
+    edge.classList.add("hit");
+  }
+
+  const now = performance.now();
+  if (now - battle.lastAttackNotice > 10000) showToast("Sua ilha está sob ataque!", "bad");
+  battle.lastAttackNotice = now;
+}
+
+function refreshIslandHealth() {
+  const fill = document.getElementById("island-hp-fill");
+  const value = document.getElementById("island-hp-value");
+  if (!fill || !value) return;
+
+  const hp = Math.ceil(state.playerHp);
+  const frac = Math.max(0, hp / COMBAT.player.health);
+  fill.style.width = frac * 100 + "%";
+  fill.classList.toggle("low", frac <= 0.35);
+  value.textContent = hp;
+}

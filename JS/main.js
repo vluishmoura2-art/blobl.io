@@ -1,166 +1,67 @@
 "use strict";
 
 /* =========================================================
-   Blobl.io - map + camera + Bloble.io building placement
+   Maré Alta - local game state, map rendering and input
 
    Scene:
-     - A large map with a white background and black border
-     - Gray grid tiled across the map
-     - Gray circular "area" border around the play field
-     - A red base circle (radius = Bloble startSize)
-     - Buildings placed freely in polar coordinates around the base,
-       using the rules recovered from Bloble.io's js/game.js
+     - A nautical chart: paper, contour bands, soundings, compass roses
+     - Your island stays still; only the camera moves (WASD)
+     - Buildings go anywhere around the island, in polar coordinates, with
+       their distance from the center limited by building type
+     - Docks sit on the outer ring; everything else stays within reach
 
-   Rules honored:
-     - The player/base does NOT move (fixed in world space)
-     - Only the camera moves (WASD steers it)
-
-   Placement (ported from Bloble.io js/game.js `updateGameLoop` / `sendUnit`):
-     Bloble sends a building as polar coords around the base:
-         socket.emit("1", angle, distance, buildingIndex)
-     The client resolves the final spot from the mouse direction and clamps
-     the distance by the building's `type`:
-       type 0 (Turret/Generator/House/Sniper/Armory):
-           distance clamped to [startSize + size, buildRange - size - 0.15]
-       type 2 (Barracks):
-           distance forced to buildRange + size
-       type 3 (Wall):
-           distance clamped to [startSize + size, buildRange + size]
-     Collision (types 0/2/3): reject when size_a + size_b >= centerDistance
-     (i.e. it overlaps another of your buildings). Mobile units (type 1) never
-     block placement. Valid spot = gray ghost, overlap = red ghost.
-
-   startSize and buildRange are server-side values (not present in the client
-   source). 100 / 275 are inferred from the popular auto-build scripts, which
-   sit on the boundary radii: Barracks at buildRange + 34 = 309, turret ring at
-   buildRange - 29.15 = 245.85. Adjust PLACE below if better data appears.
+   Drawings of the pieces live in art.js.
    ========================================================= */
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-/* ---------- STYLE (map / base design) ---------- */
+/* ---------- STYLE ---------- */
 const STYLE = {
-  background: "#081321",
-
-  grid: {
-    size: 50, // spacing between grid lines
-    color: "rgba(126, 168, 214, 0.10)", // very thin, elegant bluish lines
-    major: "rgba(126, 168, 214, 0.20)", // every 5th line, slightly brighter
-    lineWidth: 1,
-  },
-
-  area: {
-    margin: 48, // gap between the arena edge and the canvas edge
-    border: "#3f8fe0",
-    borderWidth: 3,
-  },
-
-  circle: {
-    fill: "#e03b3b",
-    borderWidth: 6,
-  },
+  tableTop: "#CFC2A5", // what lies beyond the edges of the chart
+  fill: "#C8553D", // the player's color (see setPlayerColor)
 };
 
-/* ---------- PLACEMENT RULES (Bloble.io units) ---------- */
-const PLACE = {
-  startSize: 100, // base radius (server value; inferred)
-  buildRange: 275, // max build distance from base (server value; inferred)
-  epsilon: 0.15, // exact fudge factor used by game.js
-  gap: 8, // fixed breathing room so orbitals don't kiss the base rim
+/* ---------- PLACEMENT RULES ---------- */
+const PLACE = { startSize: COMBAT.place.baseRadius, buildRange: COMBAT.place.buildRange };
 
-  validFill: "rgba(126, 168, 214, 0.18)", // bluish ghost (placeable)
-  invalidFill: "rgba(255, 70, 70, 0.16)", // red ghost (overlap)
-  indicator: "rgba(150, 195, 240, 0.26)", // build-limit ring color (active reach)
-  dashed: [55, 12], // dash pattern used by Bloble for its rings
-};
-
-/* Turret barrel length, as a multiple of the body radius */
-const BARREL = {
-  simple: 1.1,
-  sniper: 1.45, // "slightly longer barrel"
-};
-
-/* Building definitions (sizes/types from Bloble.io js/shareData.js).
-   Index order matches Bloble's number keys 1..7. */
+/* Building definitions. Index order matches the number keys 1..7. Prices and
+   stats come from shared/combat.js, so they always match the server's. */
 const BUILDINGS = [
-  { name: "Wall", type: 3, size: 30, cost: 20 },
-  { name: "Simple Turret", type: 0, size: 29, range: 180, cost: 25, design: "turret", barrel: BARREL.simple },
-  { name: "Generator", type: 0, size: 32, cost: 50, design: "generator" },
-  { name: "House", type: 0, size: 30, cost: 60, design: "house" },
-  { name: "Sniper Turret", type: 0, size: 32, range: 240, cost: 80, design: "turret", barrel: BARREL.sniper },
-  { name: "Armory", type: 0, size: 40, cost: 100, design: "armory", limit: 1 },
-  { name: "Tent", type: 2, size: 34, cost: 150, design: "tent", limit: 3 },
-];
+  { name: "Recife", desc: "Bloqueia a passagem dos barcos inimigos.", design: "wall" },
+  { name: "Canhão", desc: "Atira no barco inimigo mais próximo.", design: "turret" },
+  { name: "Moinho", desc: "Rende 1 de ouro por segundo.", design: "generator" },
+  { name: "Cabana", desc: "Aumenta em 2 o limite de botes.", design: "house" },
+  { name: "Canhão longo", desc: "Alcance maior e tiro muito mais forte.", design: "sniper" },
+  { name: "Arsenal", desc: "Com esta ferramenta, clique nele para pesquisar.", design: "armory" },
+  { name: "Cais", desc: "Produz botes. Com esta ferramenta, clique nele para evoluir.", design: "tent" },
+].map((definition, i) => ({ ...definition, ...COMBAT.buildingStats[i] }));
 
-/* Combat stats live in shared/combat.js so the server sees the same numbers.
-   Merge health/damage/range into each building definition. */
-if (typeof COMBAT !== "undefined" && Array.isArray(COMBAT.buildingStats)) {
-  for (let i = 0; i < BUILDINGS.length; i++) {
-    const stat = COMBAT.buildingStats[i];
-    if (!stat) continue;
-    if (stat.health !== undefined) BUILDINGS[i].health = stat.health;
-    if (stat.damage !== undefined) BUILDINGS[i].damage = stat.damage;
-    if (stat.range !== undefined) BUILDINGS[i].range = stat.range;
-  }
-}
-
-/* Placed-building look (gradient coral/crimson body, gray border) */
-const BUILD_STYLE = {
-  fill: "#e03b3b",
-  border: "#6b788c",
-  borderWidth: 3,
-};
-
-/* Turret pipe (barrel) color - Bloble's turretColor */
-const PIPE = { color: "#A8A8A8" };
-
-/* ---------- GRADIENT HELPERS ---------- */
-/* Blend a hex color toward white (amt > 0) or black (amt < 0) */
-function darkenHex(hex, amt) {
-  const n = parseInt(String(hex).slice(1), 16);
-  const c = (v) => Math.max(0, Math.min(255, v));
-  const r = c(((n >> 16) & 255) - amt);
-  const g = c(((n >> 8) & 255) - amt);
-  const b = c((n & 255) - amt);
-  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-}
-
-/* 3-tone radial gradient (highlight -> base -> shadow) so flat fills read as
-   lit orbs. Falls back to the raw color when a non-hex fill is passed. */
-function orbGradient(g, cx, cy, r, hex) {
-  const base = hex || BUILD_STYLE.fill;
-  if (typeof base !== "string" || base.charAt(0) !== "#") return base;
-
-  const grad = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.15, cx, cy, r * 1.05);
-  grad.addColorStop(0, lightenHex(base, 60));
-  grad.addColorStop(0.55, base);
-  grad.addColorStop(1, darkenHex(base, 65));
-  return grad;
-}
-
-/* ---------- POWER / COST SYSTEM ---------- */
+/* ---------- GOLD ---------- */
 const POWER = {
-  start: 200, // starting power
-  perGenerator: 1, // power per second, for each placed generator (Bloble pts)
+  start: COMBAT.startGold,
+  perGenerator: COMBAT.goldPerMill,
 };
 
 const state = {
   power: POWER.start,
-  playerHp: typeof COMBAT !== "undefined" ? COMBAT.player.health : 500,
+  playerHp: COMBAT.player.health,
   upgrades: 0, // armory research bitmask (see COMBAT.upgradeFlags)
   kills: 0, // kills credited by the server (drives achievements)
+  joinedAt: 0, // when this match started (ms)
+  orderedFleet: false, // has sent boats somewhere at least once
+  lastSpendAt: -Infinity, // when gold, research or a swap last changed here (ms)
 };
 
 /* ---------- UNITS (soldiers / tanks / siege tanks) ---------- */
-/* Unit config shared with the server lives in COMBAT.units; local-only extras
-   (spawn caps, tent build limits) live here. */
-const UPGRADES = typeof COMBAT !== "undefined" ? COMBAT.upgradeFlags : { armor: 1, booster: 2, cannons: 4, cloak: 8 };
-const TENT_TIERS = typeof COMBAT !== "undefined" ? COMBAT.tents : null; // index 1..4
-const UNIT_STATS = typeof COMBAT !== "undefined" ? COMBAT.units : null;
+const UPGRADES = COMBAT.upgradeFlags;
+const TENT_TIERS = COMBAT.tents; // index 1..4
+const UNIT_STATS = COMBAT.units;
 
-const TANK_CAP = 8; // max tanks on the field (tier-3 tents)
-const SIEGE_CAP = 4; // max siege tanks (tier-4 tents)
+const TANK_CAP = COMBAT.boatLimits.tank;
+const SIEGE_CAP = COMBAT.boatLimits.siege;
+
+const BOAT_NAMES = { soldier: "botes", tank: "fragatas", siege: "galeões" };
 
 function hasUpgrade(key) {
   return (state.upgrades & UPGRADES[key]) !== 0;
@@ -177,16 +78,8 @@ const placement = {
   placed: [], // { building, x, y } in world coords
 };
 
-/* ---------- SOLDIERS (produced by tents, moved by left-click) ---------- */
-const SOLDIER = {
-  size: 18, // Bloble Soldier size
-  borderWidth: 2,
-  speed: 150, // world units per second
-  interval: 3.5, // seconds between spawns, per tent (Bloble barracks reload)
-  baseLimit: 3, // how many soldiers you may field with 0 houses
-  perHouse: 2, // each house raises the soldier limit by this much
-  spread: 18, // target jitter, so soldiers don't stack into one triangle
-};
+/* ---------- BOATS (built by docks, moved by left-click) ---------- */
+const FLEET_SPREAD = 18; // target jitter, so boats don't stack on one spot
 
 const soldiers = []; // { x, y, dir, tx, ty, origin, ox, oy, uid, hp }
 
@@ -205,17 +98,13 @@ function isEliminated() {
 /* ---------- ACTION MODES (swap / delete) ---------- */
 let actionMode = null; // null | "swap" | "delete"
 
-/* Swap-mode drag state: the building lifted under the cursor */
+/* Swap-mode drag state: the building lifted under the cursor. It keeps its real
+   position until the drop, so the server never sees it mid-drag and letting go
+   over empty space simply puts it back. */
 const drag = { active: false, building: null };
 
 /* ---------- MAP (large world) ---------- */
-const MAP = {
-  width: 3000,
-  height: 3000,
-  background: "#081321",
-  border: "#1c3a5c",
-  borderWidth: 10,
-};
+const MAP = COMBAT.map;
 
 /* ---------- PLAYER / BASE (fixed in world space) ---------- */
 const PLAYER = {
@@ -313,32 +202,14 @@ function updateCamera(dt) {
   camera.y += (camera.ty - camera.y) * ease;
 }
 
-/* ---------- PLACEMENT MATH (faithful to game.js) ---------- */
+/* ---------- PLACEMENT MATH ---------- */
 
 /* Resolve the final build spot: free angle, distance clamped by type. */
 function resolvePlacement(building, worldX, worldY) {
   const dx = worldX - PLAYER.x;
   const dy = worldY - PLAYER.y;
   const dir = Math.atan2(dy, dx);
-  let dist = Math.hypot(dx, dy);
-
-  const { startSize, buildRange, epsilon, gap } = PLACE;
-
-  if (building.type === 0) {
-    if (dist - building.size < startSize + gap) {
-      dist = building.size + startSize + gap;
-    } else if (dist + building.size > buildRange - epsilon) {
-      dist = buildRange - building.size - epsilon;
-    }
-  } else if (building.type === 2) {
-    dist = building.size + buildRange;
-  } else if (building.type === 3) {
-    if (dist - building.size < startSize + gap) {
-      dist = building.size + startSize + gap;
-    } else if (dist + building.size > buildRange + 2 * building.size) {
-      dist = buildRange + building.size;
-    }
-  }
+  const dist = COMBAT.resolveDistance(building, Math.hypot(dx, dy));
 
   return {
     x: PLAYER.x + dist * Math.cos(dir),
@@ -349,9 +220,10 @@ function resolvePlacement(building, worldX, worldY) {
 }
 
 /* Overlap test: any own building (type != 1) whose circles intersect blocks it. */
-function placementValid(x, y, size) {
+function placementValid(x, y, size, ignore) {
   for (const p of placement.placed) {
     if (p.building.type === 1) continue; // mobile units never block
+    if (ignore && ignore.includes(p)) continue;
     if (size + p.building.size >= distance(x, y, p.x, p.y)) return false;
   }
   return true;
@@ -390,13 +262,11 @@ function placeBuilding(screenX, screenY, w, h) {
 
   const building = BUILDINGS[placement.active];
   if (limitReached(building)) {
-    if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
-    addShake(1.2);
+    denyFx("Limite atingido: máximo de " + building.limit + " (" + building.name + ")");
     return;
   }
   if (!canAfford(building)) {
-    if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
-    addShake(1.2);
+    denyFx(missingGold(building.cost));
     return;
   }
 
@@ -404,8 +274,7 @@ function placeBuilding(screenX, screenY, w, h) {
   const pos = resolvePlacement(building, world.x, world.y);
 
   if (!placementValid(pos.x, pos.y, building.size)) {
-    if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
-    addShake(1.2);
+    denyFx("Não cabe aqui: já tem uma construção nesse lugar");
     return;
   }
 
@@ -420,13 +289,10 @@ function placeBuilding(screenX, screenY, w, h) {
     tier: building.design === "tent" ? 1 : undefined, // tent upgrade tier (1..4)
   });
   state.power -= building.cost;
+  state.lastSpendAt = performance.now();
   refreshPowerUI();
   addShake(2.5);
-  burst(pos.x, pos.y, BUILD_STYLE.fill, 14, 130);
-  if (typeof Sfx !== "undefined") {
-    Sfx.play("place");
-    setTimeout(() => Sfx.play("connect", 0.4), 130);
-  }
+  burst(pos.x, pos.y, STYLE.fill, 14, 130);
 }
 
 /* ---------- TENT UPGRADES + ARMORY RESEARCH ---------- */
@@ -434,16 +300,16 @@ function placeBuilding(screenX, screenY, w, h) {
 /* Buying juice: the little "snap" flash + tremor shared by upgrades. */
 function purchaseFx(x, y) {
   addShake(2.5);
-  burst(x, y, BUILD_STYLE.fill, 14, 130);
-  if (typeof Sfx !== "undefined") {
-    Sfx.play("place");
-    setTimeout(() => Sfx.play("connect", 0.4), 130);
-  }
+  burst(x, y, STYLE.fill, 14, 130);
 }
 
-function denyFx() {
-  if (typeof Sfx !== "undefined") Sfx.play("error", 0.8);
+function denyFx(reason) {
   addShake(1.2);
+  showToast(reason, "bad");
+}
+
+function missingGold(cost) {
+  return "Ouro insuficiente: faltam " + Math.ceil(cost - state.power);
 }
 
 /* With the Tent tool selected, clicking an existing tent buys its next tier:
@@ -452,15 +318,17 @@ function upgradeTent(p) {
   if (!TENT_TIERS) return;
   const next = TENT_TIERS[p.tier + 1];
   if (!next) {
-    denyFx(); // already maxed out
+    denyFx("Este cais já está no nível máximo");
     return;
   }
   if (!canAffordCost(next.cost)) {
-    denyFx();
+    denyFx(missingGold(next.cost));
     return;
   }
   p.tier += 1;
+  showToast(next.name + " pronto: produz " + BOAT_NAMES[next.unit], "good");
   state.power -= next.cost;
+  state.lastSpendAt = performance.now();
   refreshPowerUI();
   purchaseFx(p.x, p.y);
 }
@@ -470,15 +338,17 @@ function upgradeTent(p) {
 function researchArmory(p) {
   const next = (COMBAT.armoryResearch || []).find((r) => !hasUpgrade(r.key));
   if (!next) {
-    denyFx(); // everything researched
+    denyFx("Todas as pesquisas já foram feitas");
     return;
   }
   if (!canAffordCost(next.cost)) {
-    denyFx();
+    denyFx(missingGold(next.cost));
     return;
   }
   state.upgrades |= UPGRADES[next.key];
+  showToast(next.name + ": " + next.desc, "good");
   state.power -= next.cost;
+  state.lastSpendAt = performance.now();
   refreshPowerUI();
   purchaseFx(p.x, p.y);
 }
@@ -502,6 +372,33 @@ function refreshPowerUI() {
 
   const shown = String(Math.floor(state.power));
   if (el.textContent !== shown) el.textContent = shown;
+
+  for (const tool of TOOL_BUTTONS) {
+    const building = BUILDINGS[tool.building];
+    const button = document.getElementById(tool.id);
+    if (!button) continue;
+
+    const full = limitReached(building);
+    button.classList.toggle("unavailable", full || !canAfford(building));
+    const cost = button.querySelector(".tool-cost");
+    const label = full ? "máx." : String(building.cost);
+    if (cost.textContent !== label) cost.textContent = label;
+  }
+}
+
+/* What the player needs to read at a glance: income and fleet limits. */
+function refreshHud() {
+  const rate = "+" + countGenerators() * POWER.perGenerator + "/s";
+  const rateEl = document.getElementById("power-rate");
+  if (rateEl.textContent !== rate) rateEl.textContent = rate;
+
+  const parts = ["Botes " + countUnits("soldier") + "/" + soldierLimit()];
+  const tier = placement.placed.reduce((top, p) => Math.max(top, p.tier || 0), 0);
+  if (tier >= 3 || countUnits("tank") > 0) parts.push("Fragatas " + countUnits("tank") + "/" + TANK_CAP);
+  if (tier >= 4 || countUnits("siege") > 0) parts.push("Galeões " + countUnits("siege") + "/" + SIEGE_CAP);
+  const fleet = parts.join(" · ");
+  const fleetEl = document.getElementById("fleet");
+  if (fleetEl.textContent !== fleet) fleetEl.textContent = fleet;
 }
 
 /* Each generator adds POWER.perGenerator power per second */
@@ -514,7 +411,7 @@ function updatePower(dt) {
 }
 
 /* ---------- SOLDIERS ---------- */
-/* Houses raise how many soldiers you can field: 3 with none, +2 each after. */
+/* Huts raise how many dinghies you can field. */
 function countHouses() {
   let n = 0;
   for (const p of placement.placed) if (p.building.design === "house") n++;
@@ -522,11 +419,10 @@ function countHouses() {
 }
 
 function soldierLimit() {
-  return SOLDIER.baseLimit + SOLDIER.perHouse * countHouses();
+  return COMBAT.boatLimits.soldierBase + COMBAT.boatLimits.perHut * countHouses();
 }
 
 function spawnUnit(tent) {
-  if (!TENT_TIERS || !UNIT_STATS) return;
   const cfg = TENT_TIERS[Math.min(tent.tier || 1, TENT_TIERS.length - 1)];
   const stat = UNIT_STATS[cfg.unit];
   const dx = PLAYER.x - tent.x;
@@ -541,8 +437,8 @@ function spawnUnit(tent) {
     tx: null,
     ty: null,
     origin: tent,
-    ox: (Math.random() * 2 - 1) * SOLDIER.spread,
-    oy: (Math.random() * 2 - 1) * SOLDIER.spread,
+    ox: (Math.random() * 2 - 1) * FLEET_SPREAD,
+    oy: (Math.random() * 2 - 1) * FLEET_SPREAD,
     uid: nextUid(),
     kind: cfg.unit,
     hp: stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1),
@@ -552,7 +448,6 @@ function spawnUnit(tent) {
 /* Tents produce their tier's unit over time: soldiers honor the house-driven
    cap, while tanks and siege tanks have their own field caps. */
 function updateTents(dt) {
-  if (!TENT_TIERS) return;
   for (const p of placement.placed) {
     if (p.building.design !== "tent") continue;
 
@@ -560,7 +455,7 @@ function updateTents(dt) {
     p.spawnTimer = (p.spawnTimer || 0) + dt;
     while (p.spawnTimer >= cfg.interval) {
       p.spawnTimer -= cfg.interval;
-      if (cfg.unit === "soldier" && soldiers.length < soldierLimit()) spawnUnit(p);
+      if (cfg.unit === "soldier" && countUnits("soldier") < soldierLimit()) spawnUnit(p);
       else if (cfg.unit === "tank" && countUnits("tank") < TANK_CAP) spawnUnit(p);
       else if (cfg.unit === "siege" && countUnits("siege") < SIEGE_CAP) spawnUnit(p);
     }
@@ -573,9 +468,25 @@ function countUnits(kind) {
   return n;
 }
 
-/* Units walk toward their target (or stand still when tx is null). Tanks move
-   slower than soldiers unless Booster Engines are researched. Each unit also
-   eases a 0..1 `move` flag (for squish & stretch) and leaves a fading trail. */
+/* Enemy reefs are solid: a boat stops at the edge and slides around them. */
+function slideAroundEnemyReefs(boat, size) {
+  for (const rp of net.players.values()) {
+    if (rp.id === net.id || rp.dead) continue;
+    for (const b of rp.buildings) {
+      const def = BUILDINGS[b.b];
+      if (!def || def.design !== "wall") continue;
+      const reach = def.size + size;
+      const d = Math.hypot(boat.x - b.x, boat.y - b.y);
+      if (d < reach && d > 0) {
+        boat.x = b.x + ((boat.x - b.x) / d) * reach;
+        boat.y = b.y + ((boat.y - b.y) / d) * reach;
+      }
+    }
+  }
+}
+
+/* Boats sail toward their target (or stay put when tx is null). Frigates and
+   galleons are slower unless the sail research is done. */
 function updateSoldiers(dt) {
   for (const s of soldiers) {
     let moving = 0;
@@ -590,13 +501,14 @@ function updateSoldiers(dt) {
         s.ty = null;
       } else {
         const kind = s.kind || "soldier";
-        const base = kind === "soldier" ? SOLDIER.speed : (UNIT_STATS[kind].speed || SOLDIER.speed);
-        const speed = kind !== "soldier" && hasUpgrade("booster") ? base * 1.4 : base;
+        const base = UNIT_STATS[kind].speed;
+        const speed = kind !== "soldier" && hasUpgrade("booster") ? base * COMBAT.boosterMult : base;
 
         s.dir = Math.atan2(dy, dx);
         const step = Math.min(speed * dt, d);
         s.x += Math.cos(s.dir) * step;
         s.y += Math.sin(s.dir) * step;
+        slideAroundEnemyReefs(s, UNIT_STATS[kind].size);
         moving = 1;
 
         if (step >= d) {
@@ -606,22 +518,19 @@ function updateSoldiers(dt) {
       }
     }
 
-    // eased "is moving" flag drives the unit squish & stretch (see drawSoldiers)
+    // eased "is moving" flag, so a wake only forms once a boat is under way
     const move = s.move || 0;
     s.move = move + (moving - move) * (1 - Math.exp(-dt * 12));
 
-    // a moving unit sheds a short, fading trail particle
-    if (moving && s.move > 0.25 && FX.trail.length < 260 && Math.random() < 0.5) {
+    // a moving boat leaves small ripples behind it
+    if (moving && s.move > 0.25 && FX.wake.length < 200 && Math.random() < 0.25) {
       const tail = s.dir + Math.PI;
-      FX.trail.push({
-        x: s.x + Math.cos(tail) * 6 + (Math.random() - 0.5) * 6,
-        y: s.y + Math.sin(tail) * 6 + (Math.random() - 0.5) * 6,
-        vx: Math.cos(tail) * (10 + Math.random() * 18) + (Math.random() - 0.5) * 12,
-        vy: Math.sin(tail) * (10 + Math.random() * 18) + (Math.random() - 0.5) * 12,
-        r: 1 + Math.random() * 1.6,
+      const stat = UNIT_STATS[s.kind || "soldier"];
+      FX.wake.push({
+        x: s.x + Math.cos(tail) * stat.size,
+        y: s.y + Math.sin(tail) * stat.size,
+        r: 2,
         life: 1,
-        fade: 2.8 + Math.random() * 1.8,
-        tint: BUILD_STYLE.fill,
       });
     }
   }
@@ -629,86 +538,25 @@ function updateSoldiers(dt) {
 
 /* Left-click order: send every unit to the clicked world point */
 function commandSoldiers(worldX, worldY) {
+  if (soldiers.length === 0) {
+    showToast("Você ainda não tem barcos: construa um cais");
+    return;
+  }
+  FX.orders.push({ x: worldX, y: worldY, life: 1 });
+  state.orderedFleet = true;
   for (const s of soldiers) {
     s.tx = worldX + s.ox;
     s.ty = worldY + s.oy;
   }
 }
 
-/* Cannon barrel mounted on a tank (Panzer Cannons research) */
-function paintUnitCannon(g, cx, cy, size, dir) {
-  g.save();
-  g.translate(cx, cy);
-  g.rotate(dir);
-  g.fillStyle = PIPE.color;
-  g.strokeStyle = BUILD_STYLE.border;
-  g.lineWidth = BUILD_STYLE.borderWidth;
-  const len = size * 0.95;
-  const w = size * 0.32;
-  g.beginPath();
-  g.rect(0, -w / 2, len, w);
-  g.fill();
-  g.stroke();
-  g.beginPath();
-  g.arc(0, 0, size * 0.24, 0, Math.PI * 2);
-  g.fill();
-  g.stroke();
-  g.restore();
-}
-
-/* Unit body: a triangle pointing along `dir` (soldiers small, tanks bigger).
-   Siege tanks add the gray inner triangle detail. `fill` is overridable so
-   each player's units use their own color. `squash` (0..1) stretches the body
-   along its heading so it reads as motion. */
-function paintSoldier(g, cx, cy, size, dir, fill, kind, squash) {
-  g.save();
-  g.translate(cx, cy);
-  g.rotate(dir + Math.PI / 2);
-
-  // squish & stretch along the direction of travel (local y axis)
-  if (squash) g.scale(1 - squash * 0.17, 1 + squash * 0.3);
-
-  g.beginPath();
-  for (let i = 0; i < 3; i++) {
-    const a = -Math.PI / 2 + i * ((Math.PI * 2) / 3);
-    const px = Math.cos(a) * size;
-    const py = Math.sin(a) * size;
-    if (i === 0) g.moveTo(px, py);
-    else g.lineTo(px, py);
-  }
-  g.closePath();
-
-  g.fillStyle = orbGradient(g, 0, 0, size, fill);
-  g.fill();
-  g.lineWidth = SOLDIER.borderWidth;
-  g.strokeStyle = BUILD_STYLE.border;
-  g.stroke();
-
-  if (kind === "siege") {
-    g.beginPath();
-    for (let i = 0; i < 3; i++) {
-      const a = -Math.PI / 2 + i * ((Math.PI * 2) / 3);
-      const px = Math.cos(a) * size * 0.45;
-      const py = Math.sin(a) * size * 0.45;
-      if (i === 0) g.moveTo(px, py);
-      else g.lineTo(px, py);
-    }
-    g.closePath();
-    g.fillStyle = PIPE.color;
-    g.fill();
-  }
-
-  g.restore();
-}
-
 function drawSoldiers() {
+  const cannons = hasUpgrade("cannons");
   for (const s of soldiers) {
     const kind = s.kind || "soldier";
     const stat = UNIT_STATS[kind];
-    paintSoldier(ctx, s.x, s.y, stat.size, s.dir, BUILD_STYLE.fill, kind, s.move || 0);
-    if (kind !== "soldier" && hasUpgrade("cannons")) {
-      paintUnitCannon(ctx, s.x, s.y, stat.size, s.dir);
-    }
+    paintBoat(ctx, s.x, s.y, stat.size, s.dir, STYLE.fill, kind, cannons && kind !== "soldier");
+    drawHitFlash(pieceKey(net.id, s.uid), s.x, s.y, stat.size * 0.8);
     if (s.hp !== undefined) {
       const max = stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1);
       drawObjectHp(s.x, s.y - stat.size - 8, stat.size * 1.6, s.hp, max);
@@ -717,92 +565,42 @@ function drawSoldiers() {
 }
 
 /* ---------- HEALTH BARS ---------- */
-/* Small bar centered above an object; green while healthy, red when low.
-   Drawn only while the object is damaged (hp < max). */
+/* Small bar above a damaged piece; hidden while it has full health. */
 function drawObjectHp(x, y, w, hp, max) {
   if (!(max > 0) || hp >= max) return;
 
-  const h = 5;
+  const h = 6;
   const x0 = x - w / 2;
   const frac = Math.max(0, Math.min(1, hp / max));
 
-  ctx.save();
-  ctx.fillStyle = "rgba(6, 12, 22, 0.7)";
-  if (ctx.roundRect) {
-    ctx.beginPath();
-    ctx.roundRect(x0, y, w, h, 3);
-    ctx.fill();
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(x0, y, w * frac, h, 3);
-    ctx.clip();
-  } else {
-    ctx.fillRect(x0, y, w, h);
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x0, y, w * frac, h);
-    ctx.clip();
-  }
-
-  // gradient fill: green while healthy, coral/crimson when low
-  const good = frac > 0.35;
-  const grad = ctx.createLinearGradient(x0, y, x0 + w, y);
-  if (good) {
-    grad.addColorStop(0, "#5ef29a");
-    grad.addColorStop(1, "#22b06a");
-  } else {
-    grad.addColorStop(0, "#ff8a6a");
-    grad.addColorStop(1, "#d0243c");
-  }
-  ctx.fillStyle = grad;
+  ctx.fillStyle = PAPER;
   ctx.fillRect(x0, y, w, h);
-  ctx.restore();
-
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-  if (ctx.roundRect) {
-    ctx.beginPath();
-    ctx.roundRect(x0, y, w, h, 3);
-    ctx.stroke();
-  } else {
-    ctx.strokeRect(x0, y, w, h);
-  }
-  ctx.restore();
+  ctx.fillStyle = frac > 0.35 ? "#3F7D4E" : "#B23A2E";
+  ctx.fillRect(x0, y, w * frac, h);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = INK;
+  ctx.strokeRect(x0, y, w, h);
 }
 
-/* ---------- AMBIENCE (background effects) ---------- */
-/* Floating bubbles + a slowly drifting gradient so the arena doesn't read as
-   a flat white form. Everything is clipped to the map and very subtle. */
+/* ---------- GAME FEEL ---------- */
+const CALM_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 const FX = {
-  particles: [],
-  trail: [], // wake particles streaming off the base while the camera moves
-  bursts: [], // impact particles on place / swap / delete (the "snap" juice)
+  wake: [], // ripples behind moving boats
+  orders: [], // marks where the fleet was just sent
+  bursts: [], // particles on place / swap / delete
   shake: 0, // remaining screen tremor magnitude (world px)
   ghostAge: 0, // seconds since a tool was selected (ghost fade-in)
-  aim: null, // spring-eased aim point for the placement ghost
+  aim: null, // eased aim point for the placement ghost
   t: 0,
-  prevCamX: null,
-  prevCamY: null,
-  /* squish & stretch: how much the base is currently deformed and along which
-     angle, driven by camera velocity (see updateFx) */
-  squish: 0,
-  squishAngle: 0,
-  camSpeed: 0, // smoothed camera speed (world px/s)
-  prevCamSpeed: 0,
 };
 
-function colorWithAlpha(hex, a) {
-  const n = parseInt(hex.slice(1), 16);
-  return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
-}
-
-/* A short screen tremor. Each frame draw() offsets the world by a random
-   amount times the remaining magnitude, which decays in updateFx. */
+/* A short screen tremor; draw() offsets the world by the remaining magnitude. */
 function addShake(mag) {
-  FX.shake = Math.max(FX.shake, mag);
+  if (!CALM_MOTION) FX.shake = Math.max(FX.shake, mag);
 }
 
-/* Radial burst of short-lived particles - the "snap" impact effect. */
+/* Radial burst of short-lived particles. */
 function burst(x, y, color, count, speed) {
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -821,108 +619,6 @@ function burst(x, y, color, count, speed) {
   if (FX.bursts.length > 240) FX.bursts.splice(0, FX.bursts.length - 240);
 }
 
-function spawnParticle() {
-  return {
-    fx: Math.random(),
-    r: 0.8 + Math.random() * 2.2,
-    speed: 7 + Math.random() * 12,
-    wobble: 0.5 + Math.random() * 1.4,
-    phase: Math.random() * Math.PI * 2,
-    alpha: 0.12 + Math.random() * 0.3,
-    twinkle: 0.4 + Math.random() * 1.8, // per-mote flicker rate
-  };
-}
-
-function ensureParticles(w, h) {
-  const target = Math.round(w * h / 26000) + 14;
-  while (FX.particles.length < target) FX.particles.push(spawnParticle());
-  if (FX.particles.length > target) FX.particles.length = target;
-}
-
-function drawAmbience(time, w, h) {
-  const t = time / 1000;
-  FX.t = t;
-  ensureParticles(w, h);
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, MAP.width, MAP.height);
-  ctx.clip();
-
-  // gently drifting caustic light, cool and very low opacity
-  const sx = w / 2 + Math.cos(t * 0.12) * w * 0.3;
-  const sy = h / 2 + Math.sin(t * 0.09) * h * 0.28;
-  const gx = camera.x + (sx - w / 2);
-  const gy = camera.y + (sy - h / 2);
-  const grad = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(w, h) * 0.85);
-  grad.addColorStop(0, "rgba(84, 150, 220, 0.14)");
-  grad.addColorStop(0.6, "rgba(60, 110, 170, 0.05)");
-  grad.addColorStop(1, "rgba(0, 0, 0, 0)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(camera.x - w / 2, camera.y - h / 2, w, h);
-
-  // ambient dust: soft, slowly drifting motes that twinkle as they rise
-  for (const p of FX.particles) {
-    const py = h + 24 - ((t * p.speed + p.phase * 40) % (h + 48));
-    const px = p.fx * w + Math.sin(t * p.wobble + p.phase * 2.3) * 14;
-    const wx = camera.x + (px - w / 2);
-    const wy = camera.y + (py - h / 2);
-    const flicker = 0.6 + 0.4 * Math.sin(t * p.twinkle + p.phase * 5);
-
-    // tiny glow halo + bright core = floating light dust
-    const halo = ctx.createRadialGradient(wx, wy, 0, wx, wy, p.r * 3.4);
-    halo.addColorStop(0, "rgba(150, 200, 250, " + (p.alpha * flicker * 0.7).toFixed(3) + ")");
-    halo.addColorStop(1, "rgba(150, 200, 250, 0)");
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(wx, wy, p.r * 3.4, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(wx, wy, p.r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(214, 234, 255, " + (p.alpha * flicker).toFixed(3) + ")";
-    ctx.fill();
-  }
-
-  // wake / motion trails: soft motes that shrink and fade as they die, drawn
-  // with a glow halo so movement leaves a smooth ribbon behind it
-  for (const p of FX.trail) {
-    const life = Math.max(0, p.life);
-    const r = p.r * (0.35 + 0.65 * life);
-    const a = life * life * 0.4;
-
-    const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.2);
-    halo.addColorStop(0, colorWithAlpha(p.tint || BUILD_STYLE.fill, a * 0.7));
-    halo.addColorStop(1, colorWithAlpha(p.tint || BUILD_STYLE.fill, 0));
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r * 3.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = colorWithAlpha(p.tint || BUILD_STYLE.fill, a);
-    ctx.fill();
-  }
-
-  // impact bursts: the "snap" flashes from placing / swapping / deleting
-  for (const p of FX.bursts) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.globalAlpha = Math.max(0, p.life);
-    ctx.fillStyle = p.color;
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-
-  ctx.restore();
-}
-
-/* ---------- GAME FEEL (elastic aim + wake + crosshair) ---------- */
-
-/* Springs the placement ghost toward the cursor and emits wake particles
-   streaming off the base rim while the camera moves (the fixed base appears
-   to glide through the world). */
 function updateFx(dt) {
   const { w, h } = viewSize();
 
@@ -940,145 +636,281 @@ function updateFx(dt) {
     p.y += p.vy * dt;
   }
 
+  for (let i = FX.wake.length - 1; i >= 0; i--) {
+    const p = FX.wake[i];
+    p.life -= dt * 1.5;
+    p.r += dt * 16;
+    if (p.life <= 0) FX.wake.splice(i, 1);
+  }
+
+  for (let i = FX.orders.length - 1; i >= 0; i--) {
+    FX.orders[i].life -= dt * 1.4;
+    if (FX.orders[i].life <= 0) FX.orders.splice(i, 1);
+  }
+
   if (placement.mouseX !== null) {
     const m = screenToWorld(placement.mouseX, placement.mouseY, w, h);
     if (!FX.aim) FX.aim = { x: m.x, y: m.y };
-    const ease = 1 - Math.pow(0.001, dt); // ~14/s spring
+    const ease = 1 - Math.pow(0.001, dt);
     FX.aim.x += (m.x - FX.aim.x) * ease;
     FX.aim.y += (m.y - FX.aim.y) * ease;
   }
-
-  if (FX.prevCamX === null) {
-    FX.prevCamX = camera.x;
-    FX.prevCamY = camera.y;
-    return;
-  }
-
-  const vx = camera.x - FX.prevCamX;
-  const vy = camera.y - FX.prevCamY;
-  FX.prevCamX = camera.x;
-  FX.prevCamY = camera.y;
-
-  const vmag = Math.hypot(vx, vy);
-
-  // squish & stretch: the fixed base deforms along the direction it appears to
-  // travel (the camera's motion), stretching at speed and popping on accel.
-  // Clamped so a teleport/spawn jump can't peg the deformation.
-  const spd = dt > 0 ? Math.min(vmag / dt, CAMERA.speed * 3) : 0;
-  FX.camSpeed += (spd - FX.camSpeed) * (1 - Math.exp(-dt * 10));
-  const cruise = Math.min(1, FX.camSpeed / CAMERA.speed);
-  const accel = Math.abs(FX.camSpeed - FX.prevCamSpeed) / Math.max(dt, 1e-4);
-  FX.prevCamSpeed = FX.camSpeed;
-  const squishTarget = Math.min(0.17, cruise * 0.11 + Math.min(accel / 4200, 0.06));
-  FX.squish += (squishTarget - FX.squish) * (1 - Math.exp(-dt * 13));
-  if (vmag > 0.5) FX.squishAngle = Math.atan2(vy, vx);
-
-  if (vmag > 6) {
-    const wake = Math.atan2(vy, vx); // the base's "back" faces the camera motion
-    const n = Math.min(3, 1 + Math.floor(vmag / 9));
-    for (let i = 0; i < n; i++) {
-      FX.trail.push({
-        x: PLAYER.x + Math.cos(wake) * (PLACE.startSize + 10) + (Math.random() - 0.5) * 16,
-        y: PLAYER.y + Math.sin(wake) * (PLACE.startSize + 10) + (Math.random() - 0.5) * 16,
-        vx: Math.cos(wake) * (16 + Math.random() * 30) + (Math.random() - 0.5) * 22,
-        vy: Math.sin(wake) * (16 + Math.random() * 30) + (Math.random() - 0.5) * 22,
-        r: 1.5 + Math.random() * 2.5,
-        life: 1,
-        fade: 2.4 + Math.random() * 1.6,
-        tint: BUILD_STYLE.fill,
-      });
-    }
-  }
-
-  for (let i = FX.trail.length - 1; i >= 0; i--) {
-    const p = FX.trail[i];
-    p.life -= dt * p.fade;
-    if (p.life <= 0) {
-      FX.trail.splice(i, 1);
-      continue;
-    }
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-  }
-  if (FX.trail.length > 260) FX.trail.splice(0, FX.trail.length - 260);
 }
 
-/* True when the crosshair sits on an attackable target: an enemy base, soldier
-   or building (from the relay), or one of our own buildings in delete mode. */
+function drawEffects() {
+  // the mark where the fleet was sent: an ink X inside a closing ring
+  for (const p of FX.orders) {
+    const arm = 8;
+    ctx.globalAlpha = Math.min(1, p.life * 2);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = INK;
+    ctx.beginPath();
+    ctx.moveTo(p.x - arm, p.y - arm);
+    ctx.lineTo(p.x + arm, p.y + arm);
+    ctx.moveTo(p.x + arm, p.y - arm);
+    ctx.lineTo(p.x - arm, p.y + arm);
+    ctx.moveTo(p.x + 12 + 16 * p.life, p.y);
+    ctx.arc(p.x, p.y, 12 + 16 * p.life, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.lineWidth = 1.5;
+  for (const p of FX.wake) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.strokeStyle = colorWithAlpha(SEA_INK, p.life * 0.6);
+    ctx.stroke();
+  }
+
+  for (const p of FX.bursts) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* True when the crosshair sits on an attackable target: an enemy island, boat
+   or building, or one of our own buildings in delete mode. */
 function crosshairHot(worldX, worldY) {
   if (actionMode === "delete" && buildingAt(worldX, worldY)) return true;
 
-  if (typeof net === "object" && net && net.players instanceof Map) {
+  if (net.players instanceof Map) {
     for (const rp of net.players.values()) {
-      if (rp.id === net.id) continue;
+      if (rp.id === net.id || rp.dead) continue;
 
       if (Math.hypot(rp.x - worldX, rp.y - worldY) <= PLACE.startSize + 6) return true;
-      if (Array.isArray(rp.soldiers)) {
-        for (const s of rp.soldiers) {
-          const stat = UNIT_STATS[s.kind] || COMBAT.soldier;
-          if (Math.hypot(s.x - worldX, s.y - worldY) <= stat.size + 6) return true;
-        }
+      for (const s of rp.soldiers) {
+        const stat = UNIT_STATS[s.kind] || COMBAT.soldier;
+        if (Math.hypot(s.x - worldX, s.y - worldY) <= stat.size + 6) return true;
       }
-      if (Array.isArray(rp.buildings)) {
-        for (const b of rp.buildings) {
-          const bd = BUILDINGS[b.b];
-          if (bd && Math.hypot(b.x - worldX, b.y - worldY) <= (bd.size || 20) + 6) return true;
-        }
+      for (const b of rp.buildings) {
+        const bd = BUILDINGS[b.b];
+        if (bd && Math.hypot(b.x - worldX, b.y - worldY) <= bd.size + 6) return true;
       }
     }
   }
   return false;
 }
 
-/* Stylized reticle at the cursor: thin ring, diagonal ticks and a glowing
-   center dot. Turns red when it's over an enemy or a delete target. */
+/* Ink reticle at the cursor; turns red over an enemy or a delete target. */
 function drawCrosshair(w, h) {
   if (placement.mouseX === null) return;
 
   const world = screenToWorld(placement.mouseX, placement.mouseY, w, h);
-  const hot = crosshairHot(world.x, world.y);
-  const rgb = hot ? "255, 84, 84" : "236, 241, 249";
-  const ringR = 9;
+  const color = crosshairHot(world.x, world.y) ? "#B23A2E" : INK;
+  const r = 8;
 
-  ctx.save();
-  ctx.strokeStyle = "rgba(" + rgb + ", 0.9)";
-  ctx.shadowColor = "rgba(" + rgb + ", 0.9)";
-  ctx.shadowBlur = hot ? 10 : 5;
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
-
   ctx.beginPath();
-  ctx.arc(world.x, world.y, ringR, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.lineWidth = 1.5;
-  const t0 = ringR + 1;
-  const t1 = ringR + 7;
+  ctx.arc(world.x, world.y, r, 0, Math.PI * 2);
   for (let i = 0; i < 4; i++) {
-    const a = i * (Math.PI / 2) + Math.PI / 4;
-    ctx.beginPath();
-    ctx.moveTo(world.x + Math.cos(a) * t0, world.y + Math.sin(a) * t0);
-    ctx.lineTo(world.x + Math.cos(a) * t1, world.y + Math.sin(a) * t1);
-    ctx.stroke();
+    const a = (i * Math.PI) / 2;
+    ctx.moveTo(world.x + Math.cos(a) * (r - 3), world.y + Math.sin(a) * (r - 3));
+    ctx.lineTo(world.x + Math.cos(a) * (r + 5), world.y + Math.sin(a) * (r + 5));
+  }
+  ctx.stroke();
+}
+
+/* ---------- THE CHART (map background) ---------- */
+/* The whole map is painted once onto its own canvas; each frame only copies
+   the visible part. The seed keeps it identical for every player. */
+const chart = document.createElement("canvas");
+const CHART_FONT = "'IM Fell English', Georgia, serif";
+
+function paintCompassRose(g, x, y, r) {
+  g.save();
+  g.translate(x, y);
+
+  g.strokeStyle = "rgba(43, 58, 66, 0.1)";
+  g.lineWidth = 1;
+  g.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    g.moveTo(0, 0);
+    g.lineTo(Math.cos(a) * 3200, Math.sin(a) * 3200);
+  }
+  g.stroke();
+
+  g.strokeStyle = "rgba(43, 58, 66, 0.55)";
+  g.lineWidth = 1.5;
+  g.beginPath();
+  g.arc(0, 0, r, 0, Math.PI * 2);
+  g.moveTo(r * 0.82, 0);
+  g.arc(0, 0, r * 0.82, 0, Math.PI * 2);
+  g.stroke();
+
+  for (let i = 0; i < 8; i++) {
+    const long = i % 2 === 0;
+    const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+    const tip = long ? r * 0.98 : r * 0.58;
+    const side = a + Math.PI / 2;
+    const base = r * 0.12;
+    const halves = [
+      [1, "rgba(43, 58, 66, 0.7)"],
+      [-1, PAPER],
+    ];
+    for (const [dir, fill] of halves) {
+      g.beginPath();
+      g.moveTo(Math.cos(a) * tip, Math.sin(a) * tip);
+      g.lineTo(0, 0);
+      g.lineTo(Math.cos(side) * base * dir, Math.sin(side) * base * dir);
+      g.closePath();
+      g.fillStyle = fill;
+      g.fill();
+      g.lineWidth = 1;
+      g.strokeStyle = "rgba(43, 58, 66, 0.7)";
+      g.stroke();
+    }
   }
 
-  ctx.fillStyle = hot ? "rgba(255, 96, 96, 0.95)" : "rgba(244, 248, 252, 0.95)";
-  ctx.beginPath();
-  ctx.arc(world.x, world.y, 2, 0, Math.PI * 2);
-  ctx.fill();
+  g.fillStyle = "rgba(43, 58, 66, 0.75)";
+  g.font = "22px " + CHART_FONT;
+  g.textAlign = "center";
+  g.textBaseline = "bottom";
+  g.fillText("N", 0, -r - 3);
+  g.restore();
+}
 
-  ctx.restore();
+function buildChart() {
+  chart.width = MAP.width;
+  chart.height = MAP.height;
+  const g = chart.getContext("2d");
+  const rand = seededRandom(1498);
+  const cx = MAP.width / 2;
+  const cy = MAP.height / 2;
+
+  g.fillStyle = PAPER;
+  g.fillRect(0, 0, MAP.width, MAP.height);
+
+  // depth bands: flat tints with an irregular contour, shallowest at the center
+  const bands = [
+    [1320, "#EEE9D8"],
+    [1020, "#E8E7D8"],
+    [740, "#E1E4D7"],
+  ];
+  for (const [radius, fill] of bands) {
+    const points = [];
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      const r = radius * (0.92 + rand() * 0.14);
+      points.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+    traceClosedCurve(g, points);
+    g.fillStyle = fill;
+    g.fill();
+    g.lineWidth = 1.5;
+    g.strokeStyle = SEA_LINE;
+    g.stroke();
+  }
+
+  // latitude / longitude lines, with their labels
+  g.strokeStyle = "rgba(95, 128, 136, 0.3)";
+  g.lineWidth = 1;
+  g.beginPath();
+  for (let v = 250; v < MAP.width; v += 250) {
+    g.moveTo(v, 0);
+    g.lineTo(v, MAP.height);
+    g.moveTo(0, v);
+    g.lineTo(MAP.width, v);
+  }
+  g.stroke();
+
+  g.font = "italic 15px " + CHART_FONT;
+  g.fillStyle = "rgba(95, 128, 136, 0.8)";
+  g.textAlign = "left";
+  g.textBaseline = "bottom";
+  for (let v = 250; v < MAP.width; v += 250) {
+    const degrees = v / 50 + "°";
+    for (let along = 500; along < MAP.width; along += 1000) {
+      g.fillText(degrees, v + 5, along);
+      g.fillText(degrees, along + 5, v - 2);
+    }
+  }
+
+  const roses = [
+    [620, 640, 90],
+    [2380, 760, 70],
+    [760, 2380, 70],
+    [2340, 2300, 90],
+  ];
+  for (const [x, y, r] of roses) paintCompassRose(g, x, y, r);
+
+  // depth soundings and little wave marks scattered over the water
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillStyle = "rgba(95, 128, 136, 0.65)";
+  g.font = "italic 14px " + CHART_FONT;
+  for (let i = 0; i < 520; i++) {
+    g.fillText(String(3 + Math.floor(rand() * 90)), rand() * MAP.width, rand() * MAP.height);
+  }
+
+  g.strokeStyle = "rgba(95, 128, 136, 0.5)";
+  g.lineWidth = 1.5;
+  g.beginPath();
+  for (let i = 0; i < 240; i++) {
+    const x = rand() * MAP.width;
+    const y = rand() * MAP.height;
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + 6, y - 6, x + 12, y);
+    g.quadraticCurveTo(x + 18, y + 6, x + 24, y);
+  }
+  g.stroke();
+
+  // the chart's printed frame, with alternating scale marks
+  g.lineWidth = 3;
+  g.strokeStyle = INK;
+  g.strokeRect(1.5, 1.5, MAP.width - 3, MAP.height - 3);
+  g.fillStyle = INK;
+  for (let v = 0, dark = true; v < MAP.width; v += 50, dark = !dark) {
+    if (!dark) continue;
+    g.fillRect(v, 3, 50, 8);
+    g.fillRect(v, MAP.height - 11, 50, 8);
+    g.fillRect(3, v, 8, 50);
+    g.fillRect(MAP.width - 11, v, 8, 50);
+  }
+}
+
+function drawChart(w, h) {
+  const x = Math.max(0, Math.floor(camera.x - w / 2 - 10));
+  const y = Math.max(0, Math.floor(camera.y - h / 2 - 10));
+  const cw = Math.min(MAP.width - x, Math.ceil(w + 20));
+  const ch = Math.min(MAP.height - y, Math.ceil(h + 20));
+  if (cw > 0 && ch > 0) ctx.drawImage(chart, x, y, cw, ch, x, y, cw, ch);
 }
 
 /* ---------- DRAW ---------- */
 function draw(time = performance.now()) {
   const dpr = window.devicePixelRatio || 1;
   const { w, h } = viewSize();
+  FX.t = time / 1000;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-
-  // Canvas backdrop
-  ctx.fillStyle = STYLE.background;
+  ctx.fillStyle = STYLE.tableTop;
   ctx.fillRect(0, 0, w, h);
 
   const ghost = currentGhost(w, h);
@@ -1091,649 +923,184 @@ function draw(time = performance.now()) {
   ctx.save();
   ctx.translate(w / 2 - camera.x + sx, h / 2 - camera.y + sy);
 
-  drawMap();
-  drawGrid();
-  drawAmbience(time, w, h);
-  if (typeof drawRemotePlayers === "function") drawRemotePlayers();
-  drawArea(w, h);
+  drawChart(w, h);
+  drawRemotePlayers();
   drawRangeIndicators();
   drawBase();
   drawBuildings();
   drawSoldiers();
+  drawEffects();
+  drawBattle();
   drawGhost(ghost);
   drawUpgradeHint(w, h);
-  ctx.save();
   ctx.translate(-sx, -sy);
   drawCrosshair(w, h);
-  ctx.restore();
-
-  ctx.restore();
-
-  // screen-space vignette: grid is subtly lit toward the middle, darker at the
-  // edges, so the eye stays on the action
-  const vig = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.32, w / 2, h / 2, Math.max(w, h) * 0.78);
-  vig.addColorStop(0, "rgba(4, 10, 20, 0)");
-  vig.addColorStop(0.65, "rgba(4, 10, 20, 0.28)");
-  vig.addColorStop(1, "rgba(2, 6, 14, 0.62)");
-  ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, w, h);
-}
-
-/* Deep-ocean map: layered radial + linear gradients instead of flat white */
-function drawMap() {
-  const g = ctx.createLinearGradient(0, 0, MAP.width, MAP.height);
-  g.addColorStop(0, "#0a1a2e");
-  g.addColorStop(0.5, "#081321");
-  g.addColorStop(1, "#060f1c");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, MAP.width, MAP.height);
-
-  // soft central light pool, like sun through water over the play area
-  const glow = ctx.createRadialGradient(PLAYER.x, PLAYER.y, 0, PLAYER.x, PLAYER.y, MAP.width * 0.55);
-  glow.addColorStop(0, "rgba(56, 120, 190, 0.16)");
-  glow.addColorStop(0.55, "rgba(40, 90, 150, 0.06)");
-  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, MAP.width, MAP.height);
-
-  ctx.lineWidth = MAP.borderWidth;
-  ctx.strokeStyle = MAP.border;
-  ctx.strokeRect(0, 0, MAP.width, MAP.height);
-}
-
-/* Very thin, elegant bluish grid: minor lines every `size`, a brighter
-   major line every 5th so the ocean floor reads like a chart. */
-function drawGrid() {
-  const { size, color, major, lineWidth } = STYLE.grid;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, MAP.width, MAP.height);
-  ctx.clip();
-
-  const majorEvery = size * 5;
-
-  ctx.lineWidth = lineWidth;
-
-  // minor lines
-  ctx.strokeStyle = color;
-  ctx.beginPath();
-  for (let x = 0; x <= MAP.width; x += size) {
-    if (x % majorEvery === 0) continue;
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, MAP.height);
-  }
-  for (let y = 0; y <= MAP.height; y += size) {
-    if (y % majorEvery === 0) continue;
-    ctx.moveTo(0, y);
-    ctx.lineTo(MAP.width, y);
-  }
-  ctx.stroke();
-
-  // major lines (every 5th)
-  ctx.strokeStyle = major;
-  ctx.beginPath();
-  for (let x = 0; x <= MAP.width; x += majorEvery) {
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, MAP.height);
-  }
-  for (let y = 0; y <= MAP.height; y += majorEvery) {
-    ctx.moveTo(0, y);
-    ctx.lineTo(MAP.width, y);
-  }
-  ctx.stroke();
 
   ctx.restore();
 }
 
-/* Reach ring: a soft gradient force field around the play field. The stroke
-   uses a conic gradient that slowly rotates, plus a breathing opacity pulse. */
-function drawArea(w, h) {
-  const { margin, border, borderWidth } = STYLE.area;
-  const r = Math.min(w, h) / 2 - margin;
-  if (r <= 0) return; // viewport too small to draw the ring
-  const pulse = 0.5 + 0.5 * Math.sin(FX.t * 1.1);
-
-  ctx.save();
-  ctx.globalAlpha = 0.62 + 0.32 * pulse;
-  ctx.lineWidth = borderWidth;
-
-  if (typeof ctx.createConicGradient === "function") {
-    const spin = FX.t * 0.22; // slow rotation
-    const conic = ctx.createConicGradient(spin, PLAYER.x, PLAYER.y);
-    conic.addColorStop(0, "#8fd4ff");
-    conic.addColorStop(0.25, "rgba(63, 143, 224, 0.45)");
-    conic.addColorStop(0.5, "#4fb0a8");
-    conic.addColorStop(0.75, "rgba(63, 143, 224, 0.45)");
-    conic.addColorStop(1, "#8fd4ff");
-    ctx.strokeStyle = conic;
-  } else {
-    ctx.strokeStyle = border;
-  }
-
-  ctx.shadowColor = border;
-  ctx.shadowBlur = 12 + 8 * pulse;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, r, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
-
-  // inner pulsing halo so the boundary reads as an active barrier
-  ctx.save();
-  const halo = ctx.createRadialGradient(PLAYER.x, PLAYER.y, r * 0.9, PLAYER.x, PLAYER.y, r * 1.06);
-  halo.addColorStop(0, "rgba(88, 182, 255, 0)");
-  halo.addColorStop(0.55, "rgba(88, 182, 255, " + (0.05 + 0.05 * pulse).toFixed(3) + ")");
-  halo.addColorStop(1, "rgba(88, 182, 255, 0)");
-  ctx.fillStyle = halo;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, r * 1.06, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-/* Bloble-style dotted rings: base edge (startSize) + build limit (buildRange).
-   Thin bluish strokes with a slow pulse so the build reach reads as active. */
+/* The limit of where you can build, printed like a chart boundary. It darkens
+   while a building tool is selected. */
 function drawRangeIndicators() {
-  const pulse = 0.5 + 0.5 * Math.sin(FX.t * 1.6);
-
   ctx.save();
-  ctx.setLineDash(PLACE.dashed);
-  ctx.lineDashOffset = -FX.t * 14; // slow drift, like a rotating field
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = PLACE.indicator;
-  ctx.globalAlpha = 0.55 + 0.3 * pulse;
-
+  ctx.setLineDash([12, 9]);
+  ctx.lineWidth = placement.active === null ? 1.5 : 2.5;
+  ctx.strokeStyle = colorWithAlpha(INK, placement.active === null ? 0.3 : 0.75);
   ctx.beginPath();
   ctx.arc(PLAYER.x, PLAYER.y, PLACE.buildRange, 0, Math.PI * 2);
   ctx.stroke();
-
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, PLACE.startSize, 0, Math.PI * 2);
-  ctx.stroke();
-
   ctx.restore();
 }
 
-/* Draws a player's name centered on their base "ball", with the achievement
-   tag they earned (if any) on a pill directly below it. Shared by the local
-   player and remote players. The font auto-shrinks so even a 16-character
-   name stays inside the circle; a dark outline keeps it legible on any color. */
+/* A player's name printed on their island, with their insignia below it. The
+   font shrinks so even a 16-letter name fits the island. */
 function drawBaseLabel(x, y, name, tagId) {
   if (!name) return;
   name = String(name);
 
   const maxWidth = PLACE.startSize * 1.35;
-  let size = 26;
+  let size = 30;
 
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "900 " + size + "px 'Montserrat', system-ui, sans-serif";
-  while (size > 9 && ctx.measureText(name).width > maxWidth) {
+  ctx.font = "800 " + size + "px 'Alegreya Sans', system-ui, sans-serif";
+  while (size > 10 && ctx.measureText(name).width > maxWidth) {
     size -= 1;
-    ctx.font = "900 " + size + "px 'Montserrat', system-ui, sans-serif";
+    ctx.font = "800 " + size + "px 'Alegreya Sans', system-ui, sans-serif";
   }
 
   ctx.lineJoin = "round";
-  ctx.lineWidth = Math.max(3, size * 0.24);
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.lineWidth = Math.max(3, size * 0.22);
+  ctx.strokeStyle = INK;
   ctx.strokeText(name, x, y);
-
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = PAPER;
   ctx.fillText(name, x, y);
   ctx.restore();
 
-  if (tagId) drawBaseTag(x, y + size * 0.5 + 13, tagId);
+  if (tagId) drawBaseTag(x, y + size * 0.5 + 14, tagId);
 }
 
-/* Small gradient badge (thin glass border, white text) carrying an earned
-   achievement's name, sitting under the base name. */
-function drawBaseTag(x, y, tagId) {
-  const label = typeof getAchievementName === "function" ? getAchievementName(tagId) : null;
-  if (!label) return;
-
+/* A printed label on the chart: paper plate, ink border, ink text. */
+function drawPlate(x, y, text, color) {
   ctx.save();
-  ctx.font = "800 11px 'Montserrat', system-ui, sans-serif";
+  ctx.font = "800 13px 'Alegreya Sans', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  const padX = 8;
-  const h = 18;
-  const w = ctx.measureText(label).width + padX * 2;
-
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h / 2, w, h, 9);
-  else ctx.rect(x - w / 2, y - h / 2, w, h);
-
-  const base = BUILD_STYLE.fill;
-  const grad = ctx.createLinearGradient(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
-  grad.addColorStop(0, lightenHex(base, 55));
-  grad.addColorStop(1, darkenHex(base, 45));
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-  ctx.stroke();
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(label, x, y + 1);
+  const w = ctx.measureText(text).width + 16;
+  const h = 21;
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(x - w / 2, y - h / 2, w, h);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = color || INK;
+  ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+  ctx.fillStyle = color || INK;
+  ctx.fillText(text, x, y + 1);
   ctx.restore();
 }
 
-function drawBaseName() {
-  if (typeof PROFILE !== "object" || !PROFILE) return;
+function drawBaseTag(x, y, tagId) {
+  const label = getAchievementName(tagId);
+  if (label) drawPlate(x, y, label);
+}
+
+/* The tide: one ripple slowly leaving the coast, every few seconds. */
+function drawTide(x, y, seed) {
+  const phase = ((FX.t + (hashSeed(seed) % 50) / 10) % 6) / 6;
+  traceClosedCurve(ctx, scaledShape(islandShape(seed), x, y, PLACE.startSize * (1.12 + 0.22 * phase)));
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = colorWithAlpha(SEA_INK, 0.7 * (1 - phase));
+  ctx.stroke();
+}
+
+function drawBase() {
+  const seed = net.id || "local";
+  const r = PLACE.startSize;
+
+  if (isEliminated()) {
+    paintWreck(ctx, PLAYER.x, PLAYER.y, r, seed);
+    return;
+  }
+
+  drawTide(PLAYER.x, PLAYER.y, seed);
+  paintIsland(ctx, PLAYER.x, PLAYER.y, r, STYLE.fill, seed);
+  drawHitFlash(pieceKey(seed, "island"), PLAYER.x, PLAYER.y, r);
+  drawObjectHp(PLAYER.x, PLAYER.y - r - 14, r * 1.8, state.playerHp, COMBAT.player.health);
   drawBaseLabel(PLAYER.x, PLAYER.y, PROFILE.name, PROFILE.tag);
 }
 
-/* Base circle (radius = Bloble startSize): a coral->crimson gradient orb with
-   a gradient neon rim and a breathing aura ring that reads as real-time light. */
-function drawBase() {
-  const { fill, borderWidth } = STYLE.circle;
-  const t = FX.t; // seconds, shared with the ambience pass
-  // two detuned sine waves so the base never reads as a metronome
-  const b1 = 0.5 + 0.5 * Math.sin(t * 2.4);
-  const b2 = 0.5 + 0.5 * Math.sin(t * 1.3 + 1.9);
-  const r = PLACE.startSize;
-  const light = lightenHex(fill, 60);
-  const deep = darkenHex(fill, 70);
-
-  // breathing aura behind the base (soft radial bloom)
-  const glowR = r * (1.5 + 0.1 * b1);
-  const aura = ctx.createRadialGradient(PLAYER.x, PLAYER.y, r * 0.55, PLAYER.x, PLAYER.y, glowR);
-  aura.addColorStop(0, colorWithAlpha(light, 0.2 + 0.1 * b1 + 0.05 * b2));
-  aura.addColorStop(0.55, colorWithAlpha(fill, 0.12 + 0.08 * b1));
-  aura.addColorStop(1, colorWithAlpha(fill, 0));
-  ctx.fillStyle = aura;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, glowR, 0, Math.PI * 2);
-  ctx.fill();
-
-  // aura ring: gradient ring with a dynamic neon glow, slowly counter-rotating
-  ctx.save();
-  ctx.lineWidth = 2.5;
-  ctx.globalAlpha = 0.5 + 0.4 * b2;
-  if (typeof ctx.createConicGradient === "function") {
-    const ring = ctx.createConicGradient(-t * 0.4, PLAYER.x, PLAYER.y);
-    ring.addColorStop(0, light);
-    ring.addColorStop(0.3, colorWithAlpha(fill, 0.2));
-    ring.addColorStop(0.6, lightenHex(fill, 25));
-    ring.addColorStop(1, light);
-    ctx.strokeStyle = ring;
-  } else {
-    ctx.strokeStyle = light;
-  }
-  ctx.shadowColor = light;
-  ctx.shadowBlur = 14 + 10 * b1;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, r * (1.12 + 0.03 * b1), 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
-
-  // traveling heartbeat ring: expands out and fades once every 3s
-  const ph = (t % 3) / 3;
-  ctx.save();
-  ctx.strokeStyle = colorWithAlpha(light, 0.55 * (1 - ph));
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, r * (1.04 + 0.42 * ph), 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
-
-  // squish & stretch: deform the body along the camera's motion direction so
-  // the base reads as a weighty blob that leans into its movement
-  ctx.save();
-  if (FX.squish > 0.001) {
-    const s = FX.squish;
-    ctx.translate(PLAYER.x, PLAYER.y);
-    ctx.rotate(FX.squishAngle);
-    ctx.scale(1 + s, 1 - s * 0.62);
-    ctx.rotate(-FX.squishAngle);
-    ctx.translate(-PLAYER.x, -PLAYER.y);
-  }
-
-  // the orb itself: 3-tone radial gradient (coral highlight -> base -> crimson)
-  ctx.save();
-  ctx.shadowColor = fill;
-  ctx.shadowBlur = 16 + 14 * b1 + 4 * b2;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, r, 0, Math.PI * 2);
-  const orb = ctx.createRadialGradient(PLAYER.x - r * 0.3, PLAYER.y - r * 0.38, r * 0.12, PLAYER.x, PLAYER.y, r * 1.02);
-  orb.addColorStop(0, lightenHex(fill, 75));
-  orb.addColorStop(0.45, light);
-  orb.addColorStop(1, deep);
-  ctx.fillStyle = orb;
-  ctx.fill();
-  ctx.restore();
-
-  // rim: gradient stroke (bright top-left -> deep crimson bottom) + sheen
-  ctx.save();
-  ctx.lineWidth = borderWidth;
-  const rim = ctx.createLinearGradient(PLAYER.x - r, PLAYER.y - r, PLAYER.x + r, PLAYER.y + r);
-  rim.addColorStop(0, lightenHex(fill, 90));
-  rim.addColorStop(0.5, lightenHex(fill, 25));
-  rim.addColorStop(1, darkenHex(fill, 30));
-  ctx.strokeStyle = rim;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, r, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // top-left specular sheen
-  const sheen = ctx.createRadialGradient(
-    PLAYER.x - r * 0.38,
-    PLAYER.y - r * 0.45,
-    0,
-    PLAYER.x - r * 0.38,
-    PLAYER.y - r * 0.45,
-    r * 0.95
-  );
-  sheen.addColorStop(0, "rgba(255, 255, 255, 0.34)");
-  sheen.addColorStop(0.45, "rgba(255, 255, 255, 0.06)");
-  sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
-  ctx.fillStyle = sheen;
-  ctx.beginPath();
-  ctx.arc(PLAYER.x, PLAYER.y, r - borderWidth * 0.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  ctx.restore(); // end squish & stretch transform
-
-  if (state.playerHp !== undefined) {
-    drawObjectHp(PLAYER.x, PLAYER.y - PLACE.startSize - 12, PLACE.startSize * 1.8, state.playerHp, COMBAT.player.health);
-  }
-
-  drawBaseName();
-}
-
-/* Turret: colored body circle + gray pipe (barrel) pointing outward.
-   `barrel` is the pipe length as a multiple of the body radius.
-   `fill` is overridable (per-player color in multiplayer). */
-function paintTurret(g, cx, cy, size, dir, barrel, fill) {
-  // Body circle (same design as a wall) with a soft 3-tone gradient
-  g.beginPath();
-  g.arc(cx, cy, size, 0, Math.PI * 2);
-  g.fillStyle = orbGradient(g, cx, cy, size, fill);
-  g.fill();
-  g.lineWidth = BUILD_STYLE.borderWidth;
-  g.strokeStyle = BUILD_STYLE.border;
-  g.stroke();
-
-  // Pipe + hub, aimed along `dir`
-  g.save();
-  g.translate(cx, cy);
-  g.rotate(dir);
-
-  const len = size * (barrel || BARREL.simple); // pipe reaches just past the body edge
-  const w = size * 0.5;
-
-  g.fillStyle = PIPE.color;
-  g.strokeStyle = BUILD_STYLE.border;
-  g.lineWidth = BUILD_STYLE.borderWidth;
-
-  g.beginPath();
-  g.rect(0, -w / 2, len, w);
-  g.fill();
-  g.stroke();
-
-  g.beginPath();
-  g.arc(0, 0, size * 0.4, 0, Math.PI * 2);
-  g.fillStyle = PIPE.color;
-  g.fill();
-  g.stroke();
-
-  g.restore();
-}
-
-/* Regular polygon (Bloble's renderAgon: first vertex points right) */
-function paintAgon(g, cx, cy, radius, sides, fill, border, lineWidth) {
-  const step = (Math.PI * 2) / sides;
-
-  g.beginPath();
-  g.moveTo(cx + radius, cy);
-  for (let i = 1; i < sides; i++) {
-    const a = step * i;
-    g.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
-  }
-  g.closePath();
-
-  if (fill) {
-    g.fillStyle = orbGradient(g, cx, cy, radius, fill);
-    g.fill();
-  }
-  if (border) {
-    g.lineWidth = lineWidth;
-    g.strokeStyle = border;
-    g.stroke();
-  }
-}
-
-/* Polygon building: colored body + gray border, with an inner gray shape.
-   `fill` is overridable (per-player color in multiplayer). `rotate` turns the
-   whole shape so a vertex follows the radius (orbital alignment). */
-function paintAgonBuilding(g, cx, cy, size, sides, fill, rotate) {
-  g.save();
-  if (rotate) {
-    g.translate(cx, cy);
-    g.rotate(rotate);
-    g.translate(-cx, -cy);
-  }
-  paintAgon(g, cx, cy, size, sides, fill || BUILD_STYLE.fill, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
-  paintAgon(g, cx, cy, size * 0.55, sides, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
-  g.restore();
-}
-
-/* Generator: colored hexagon with an inner gray hexagon */
-function paintGenerator(g, cx, cy, size, fill, rotate) {
-  paintAgonBuilding(g, cx, cy, size, 6, fill, rotate);
-}
-
-/* House: same design as the generator, but a pentagon */
-function paintHouse(g, cx, cy, size, fill, rotate) {
-  paintAgonBuilding(g, cx, cy, size, 5, fill, rotate);
-}
-
-/* Square centered on (cx, cy); `half` is the half-width (Bloble's size) */
-function paintSquare(g, cx, cy, half, fill, border, lineWidth) {
-  g.beginPath();
-  g.rect(cx - half, cy - half, half * 2, half * 2);
-
-  if (fill) {
-    g.fillStyle = typeof fill === "string" ? orbGradient(g, cx, cy, half, fill) : fill;
-    g.fill();
-  }
-  if (border) {
-    g.lineWidth = lineWidth;
-    g.strokeStyle = border;
-    g.stroke();
-  }
-}
-
-/* Filled circle with an optional border (building body primitive) */
-function paintDisk(g, cx, cy, r, fill, border) {
-  g.beginPath();
-  g.arc(cx, cy, r, 0, Math.PI * 2);
-  g.fillStyle = typeof fill === "string" ? orbGradient(g, cx, cy, r, fill) : fill;
-  g.fill();
-  if (border) {
-    g.lineWidth = BUILD_STYLE.borderWidth;
-    g.strokeStyle = border;
-    g.stroke();
-  }
-}
-
-/* Decorative turrets arranged on a ring (the armory control panel detail) */
-function paintTurretRing(g, cx, cy, r, fill, count, rotate) {
-  for (let i = 0; i < count; i++) {
-    const a = (i * (Math.PI * 2)) / count + (rotate || 0);
-    const tx = cx + Math.cos(a) * r;
-    const ty = cy + Math.sin(a) * r;
-    g.save();
-    g.translate(tx, ty);
-    g.rotate(a);
-    g.fillStyle = fill || PIPE.color;
-    g.strokeStyle = BUILD_STYLE.border;
-    g.lineWidth = BUILD_STYLE.borderWidth;
-    g.beginPath();
-    g.rect(0, -2.5, Math.max(8, r * 0.45), 5);
-    g.fill();
-    g.stroke();
-    g.beginPath();
-    g.arc(0, 0, 3.5, 0, Math.PI * 2);
-    g.fill();
-    g.stroke();
-    g.restore();
-  }
-}
-
-/* Armory: base-colored circle with a gray border, and a gray "control" circle
-   holding four non-functional turrets. */
-function paintArmory(g, cx, cy, size, fill, rotate) {
-  g.save();
-  if (rotate) {
-    g.translate(cx, cy);
-    g.rotate(rotate);
-    g.translate(-cx, -cy);
-  }
-  paintDisk(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border);
-  paintDisk(g, cx, cy, size * 0.62, PIPE.color, BUILD_STYLE.border);
-  paintTurretRing(g, cx, cy, size * 0.34, PIPE.color, 4, rotate);
-  g.restore();
-}
-
-/* Tent (barracks). Tiers 1-4:
-   1 = base: square + inner gray square (produces soldiers)
-   2 = Greater Barracks: inner square cut to the base color (faster soldiers)
-   3 = Tank Factory: detail of four small gray squares (produces tanks)
-   4 = Siege Foundry: armory-style circle, inner square + four turrets */
-function paintTent(g, cx, cy, size, fill, rotate, tier) {
-  g.save();
-  if (rotate) {
-    g.translate(cx, cy);
-    g.rotate(rotate);
-    g.translate(-cx, -cy);
-  }
-
-  const t = tier || 1;
-  if (t >= 4) {
-    paintDisk(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border);
-    paintSquare(g, cx, cy, size * 0.52, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
-    paintTurretRing(g, cx, cy, size * 0.34, PIPE.color, 4, rotate);
-  } else {
-    paintSquare(g, cx, cy, size, fill || BUILD_STYLE.fill, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
-    if (t === 3) {
-      // four small gray squares in a 2x2 detail
-      const off = size * 0.3;
-      const q = size * 0.22;
-      paintSquare(g, cx - off, cy - off, q, PIPE.color, BUILD_STYLE.border, 2);
-      paintSquare(g, cx + off, cy - off, q, PIPE.color, BUILD_STYLE.border, 2);
-      paintSquare(g, cx - off, cy + off, q, PIPE.color, BUILD_STYLE.border, 2);
-      paintSquare(g, cx + off, cy + off, q, PIPE.color, BUILD_STYLE.border, 2);
-    } else if (t === 2) {
-      // inner gray square "cut out" to reveal the base color
-      paintSquare(g, cx, cy, size * 0.55, undefined, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
-    } else {
-      paintSquare(g, cx, cy, size * 0.55, PIPE.color, BUILD_STYLE.border, BUILD_STYLE.borderWidth);
-    }
-  }
-
-  g.restore();
-}
-
-/* Radial angle from the base center to a building, so every orbital follows
-   the radius (recomputed live, so swaps keep them radially aligned) */
+/* Radial angle from the island's center to a building */
 function buildingDir(p) {
   return Math.atan2(p.y - PLAYER.y, p.x - PLAYER.x);
 }
 
-/* Placed buildings: walls are plain circles, turrets get the pipe.
-   A faint rod links each orbital to the base so they read as coupled modules. */
 function drawBuildings() {
-  // orbital connector rods: base rim -> building edge (they grow out on spawn)
-  const rimX = (a) => PLAYER.x + Math.cos(a) * (PLACE.startSize + 3);
-  const rimY = (a) => PLAYER.y + Math.sin(a) * (PLACE.startSize + 3);
-  ctx.lineWidth = 2;
   for (const p of placement.placed) {
-    const a = buildingDir(p);
-    const age = (p.born === undefined ? 1 : FX.t - p.born) || 0;
-    const grow = Math.min(1, age * 4.2);
-    const ex = p.x - (p.x - rimX(a)) * (1 - grow);
-    const ey = p.y - (p.y - rimY(a)) * (1 - grow);
-    ctx.beginPath();
-    ctx.moveTo(rimX(a), rimY(a));
-    ctx.lineTo(ex, ey);
-    ctx.strokeStyle = colorWithAlpha(BUILD_STYLE.fill, 0.1 * Math.min(1, age * 3.2));
-    ctx.stroke();
+    if (p !== drag.building) drawPlacedBuilding(p);
   }
 
-  for (const p of placement.placed) {
-    const dir = buildingDir(p);
-    // squash-and-stretch: sizes overshoot ~28% then fall back within ~0.3s
-    const age = (p.born === undefined ? 1 : FX.t - p.born) || 0;
-    const st = Math.min(1, age / 0.3);
-    const pop = 1 + 0.28 * Math.sin(st * Math.PI) * (1 - st * 0.72);
-    const s = p.building.size * pop;
-
-    if (p.building.design === "turret") {
-      paintTurret(ctx, p.x, p.y, s, dir, p.building.barrel);
-    } else if (p.building.design === "generator") {
-      paintGenerator(ctx, p.x, p.y, s, undefined, dir);
-    } else if (p.building.design === "tent") {
-      paintTent(ctx, p.x, p.y, s, undefined, dir, p.tier);
-    } else if (p.building.design === "armory") {
-      paintArmory(ctx, p.x, p.y, s, undefined, dir);
-    } else if (p.building.design === "house") {
-      paintHouse(ctx, p.x, p.y, s, undefined, dir);
-    } else {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, s, 0, Math.PI * 2);
-      ctx.fillStyle = orbGradient(ctx, p.x, p.y, s, BUILD_STYLE.fill);
-      ctx.fill();
-      ctx.lineWidth = BUILD_STYLE.borderWidth;
-      ctx.strokeStyle = BUILD_STYLE.border;
-      ctx.stroke();
-    }
-
-    if (p.building.health && p.hp !== undefined) {
-      drawObjectHp(p.x, p.y - p.building.size - 8, Math.max(28, p.building.size * 1.4), p.hp, p.building.health);
-    }
+  // the lifted building follows the cursor, on top of everything else
+  if (drag.active && placement.placed.includes(drag.building)) {
+    const { w, h } = viewSize();
+    const at = screenToWorld(placement.mouseX, placement.mouseY, w, h);
+    drawPlacedBuilding({ ...drag.building, x: at.x, y: at.y });
   }
 }
 
-/* Placement ghost: gray when valid, red when it would overlap.
-   The footprint (size + 30) matches the wall preview so every tool
-   reads the same; a faint dashed ring shows a turret's range. */
+function drawPlacedBuilding(p) {
+  // a new piece overshoots its size a little, then settles within ~0.3s
+  const age = (p.born === undefined ? 1 : FX.t - p.born) || 0;
+  const st = Math.min(1, age / 0.3);
+  const pop = 1 + 0.28 * Math.sin(st * Math.PI) * (1 - st * 0.72);
+
+  const key = pieceKey(net.id, p.uid);
+  paintBuilding(ctx, p.building, p.x, p.y, p.building.size * pop, STYLE.fill, aimOf(key, buildingDir(p)), p.tier, FX.t);
+  drawHitFlash(key, p.x, p.y, p.building.size);
+
+  if (p.building.health && p.hp !== undefined) {
+    drawObjectHp(p.x, p.y - p.building.size - 10, Math.max(28, p.building.size * 1.4), p.hp, p.building.health);
+  }
+}
+
+/* Placement preview: the real piece, faded, inside its true footprint. The
+   outline turns red when it can't be built; cannons also show their range. */
 function drawGhost(ghost) {
   if (!ghost) return;
 
-  ctx.save();
-  ctx.globalAlpha = Math.min(1, (FX.ghostAge || 0) * 7);
-
   const b = ghost.building;
+  const fade = Math.min(1, (FX.ghostAge || 0) * 7);
+  const color = ghost.valid ? INK : "#B23A2E";
+
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.setLineDash([8, 6]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = color;
 
   if (b.range) {
-    ctx.save();
-    ctx.setLineDash(PLACE.dashed);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = PLACE.indicator;
     ctx.beginPath();
     ctx.arc(ghost.x, ghost.y, b.range, 0, Math.PI * 2);
+    ctx.globalAlpha = fade * 0.55;
     ctx.stroke();
-    ctx.restore();
+    ctx.globalAlpha = fade;
   }
 
   ctx.beginPath();
-  ctx.arc(ghost.x, ghost.y, b.size + 30, 0, Math.PI * 2);
-  ctx.fillStyle = ghost.valid ? PLACE.validFill : PLACE.invalidFill;
+  ctx.arc(ghost.x, ghost.y, b.size, 0, Math.PI * 2);
+  ctx.fillStyle = ghost.valid ? "rgba(243, 235, 217, 0.5)" : "rgba(178, 58, 46, 0.25)";
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = ghost.valid ? "#7fb2e6" : "#ff5a5a";
   ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.globalAlpha = fade * 0.65;
+  paintBuilding(ctx, b, ghost.x, ghost.y, b.size, STYLE.fill, Math.atan2(ghost.y - PLAYER.y, ghost.x - PLAYER.x), 1, FX.t);
   ctx.restore();
 }
 
-/* On-hover upgrade hint: with the Tent or Armory tool selected, hovering the
-   matching building shows the next tier/research and its power cost. */
+/* With the Dock or Arsenal tool selected, hovering that building shows the next
+   upgrade and its price. */
 function drawUpgradeHint(w, h) {
-  if (typeof COMBAT === "undefined" || !TENT_TIERS) return;
   if (placement.mouseX === null) return;
   if (placement.active !== 5 && placement.active !== 6) return;
 
@@ -1741,57 +1108,21 @@ function drawUpgradeHint(w, h) {
   const hit = buildingAt(world.x, world.y);
   if (!hit) return;
 
-  let label;
-  let cost;
+  let next;
+  let doneLabel;
   if (placement.active === 6 && hit.building.design === "tent") {
-    const next = TENT_TIERS[(hit.tier || 1) + 1];
-    if (!next) {
-      label = "Max tier";
-      cost = null;
-    } else {
-      label = next.name;
-      cost = next.cost;
-    }
+    next = TENT_TIERS[(hit.tier || 1) + 1];
+    doneLabel = "Nível máximo";
   } else if (placement.active === 5 && hit.building.design === "armory") {
-    const next = (COMBAT.armoryResearch || []).find((r) => !hasUpgrade(r.key));
-    if (!next) {
-      label = "All researched";
-      cost = null;
-    } else {
-      label = next.name;
-      cost = next.cost;
-    }
+    next = COMBAT.armoryResearch.find((r) => !hasUpgrade(r.key));
+    doneLabel = "Tudo pesquisado";
   } else {
     return;
   }
 
-  const affordable = cost === null || canAffordCost(cost);
-  const text = cost === null ? label : label + "  " + cost;
-  const x = hit.x;
-  const y = hit.y - hit.building.size - 16;
-
-  ctx.save();
-  ctx.font = "800 14px 'Montserrat', system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  const padX = 10;
-  const wText = ctx.measureText(text).width + padX * 2;
-  ctx.fillStyle = affordable ? "rgba(14, 28, 46, 0.82)" : "rgba(48, 18, 24, 0.85)";
-  ctx.beginPath();
-  if (ctx.roundRect) {
-    ctx.roundRect(x - wText / 2, y - 12, wText, 24, 9);
-  } else {
-    ctx.rect(x - wText / 2, y - 12, wText, 24);
-  }
-  ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = affordable ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 120, 120, 0.4)";
-  ctx.stroke();
-
-  ctx.fillStyle = affordable ? "#eaf2ff" : "#ff9b9b";
-  ctx.fillText(text, x, y);
-  ctx.restore();
+  const y = hit.y - hit.building.size - 18;
+  if (!next) drawPlate(hit.x, y, doneLabel);
+  else drawPlate(hit.x, y, next.name + " · " + next.cost + " de ouro", canAffordCost(next.cost) ? INK : "#B23A2E");
 }
 
 /* ---------- LOOP ---------- */
@@ -1804,7 +1135,9 @@ function loop(time) {
   updateTents(dt);
   updateSoldiers(dt);
   updateFx(dt);
+  updateBattle(dt);
   if (typeof netUpdate === "function") netUpdate(dt);
+  refreshHud();
   draw(time);
 
   requestAnimationFrame(loop);
@@ -1838,7 +1171,6 @@ function toggleActionMode(mode) {
     drag.building = null;
   }
   FX.ghostAge = 0;
-  if (typeof Sfx !== "undefined") Sfx.play("click", 0.7);
   updateToolButtons();
   draw();
 }
@@ -1869,7 +1201,6 @@ function selectBuilding(index) {
   drag.building = null;
   placement.active = placement.active === index ? null : index;
   FX.ghostAge = 0;
-  if (typeof Sfx !== "undefined") Sfx.play("click", 0.7);
   updateToolButtons();
   draw();
 }
@@ -1880,13 +1211,15 @@ function deselectBuilding() {
   drag.active = false;
   drag.building = null;
   FX.ghostAge = 0;
-  if (typeof Sfx !== "undefined") Sfx.play("click", 0.7);
   updateToolButtons();
   draw();
 }
 
 /* ---------- INPUT (WASD steer camera, 1..7 pick building, Esc clears) ---------- */
 window.addEventListener("keydown", (e) => {
+  // the menu's fields and browser shortcuts (Ctrl+S, ...) keep their keys
+  if (!gameStarted || e.ctrlKey || e.metaKey || e.altKey) return;
+
   const key = e.key.toLowerCase();
 
   if (key in MOVE_KEYS) {
@@ -1908,6 +1241,12 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  if (key === "h") {
+    camera.tx = PLAYER.x; // back to your own island
+    camera.ty = PLAYER.y;
+    return;
+  }
+
   if (e.key === "Escape") deselectBuilding();
 });
 
@@ -1915,7 +1254,11 @@ window.addEventListener("keyup", (e) => {
   keys.delete(e.key.toLowerCase());
 });
 
-window.addEventListener("blur", () => keys.clear());
+window.addEventListener("blur", () => {
+  keys.clear();
+  drag.active = false;
+  drag.building = null;
+});
 
 /* World-space position under the mouse (canvas client coords) */
 function worldFromEvent(e) {
@@ -1943,17 +1286,11 @@ function buildingAt(worldX, worldY, exclude) {
   return hit;
 }
 
-/* Aim the ghost at the mouse; in swap mode the grabbed building follows */
+/* Aim the ghost at the mouse (a building lifted in swap mode follows it too) */
 canvas.addEventListener("mousemove", (e) => {
   const rect = canvas.getBoundingClientRect();
   placement.mouseX = e.clientX - rect.left;
   placement.mouseY = e.clientY - rect.top;
-
-  if (actionMode === "swap" && drag.active) {
-    const world = worldFromEvent(e);
-    drag.building.x = world.x;
-    drag.building.y = world.y;
-  }
 });
 
 /* Swap mode: pick up a building to start the drag */
@@ -1968,27 +1305,43 @@ canvas.addEventListener("mousedown", (e) => {
   }
 });
 
-/* Swap mode: drop the building; swap it with what is underneath */
-canvas.addEventListener("mouseup", (e) => {
-  if (e.button !== 0 || !drag.active) return;
+/* Exchange two buildings' spots. Each is re-resolved by its own type, so a swap
+   obeys the same range and overlap rules as placing; if it can't, nothing moves. */
+function swapBuildings(a, b) {
+  const aPos = resolvePlacement(a.building, b.x, b.y);
+  const bPos = resolvePlacement(b.building, a.x, a.y);
+  const pair = [a, b];
+  const fits =
+    placementValid(aPos.x, aPos.y, a.building.size, pair) &&
+    placementValid(bPos.x, bPos.y, b.building.size, pair) &&
+    distance(aPos.x, aPos.y, bPos.x, bPos.y) > a.building.size + b.building.size;
 
-  const world = worldFromEvent(e);
-  const target = buildingAt(world.x, world.y, drag.building);
-  const p = drag.building;
-
-  if (target) {
-    [p.x, target.x] = [target.x, p.x];
-    [p.y, target.y] = [target.y, p.y];
-    [p.dir, target.dir] = [target.dir, p.dir];
-    addShake(3.5);
-    burst(p.x, p.y, BUILD_STYLE.fill, 10, 120);
-    burst(target.x, target.y, BUILD_STYLE.fill, 10, 120);
-    if (typeof Sfx !== "undefined") Sfx.play("swap");
-    if (typeof unlockAchievement === "function") unlockAchievement("flexible");
+  if (!fits) {
+    denyFx("Essas construções não cabem trocadas");
+    return;
   }
 
+  Object.assign(a, { x: aPos.x, y: aPos.y, dir: aPos.dir });
+  Object.assign(b, { x: bPos.x, y: bPos.y, dir: bPos.dir });
+  state.lastSpendAt = performance.now();
+  addShake(3.5);
+  burst(a.x, a.y, STYLE.fill, 10, 120);
+  burst(b.x, b.y, STYLE.fill, 10, 120);
+  if (typeof unlockAchievement === "function") unlockAchievement("flexible");
+}
+
+/* Swap mode: drop the building. Listens on the window so letting go over the
+   HUD or outside the page still ends the drag. */
+window.addEventListener("mouseup", (e) => {
+  if (e.button !== 0 || !drag.active) return;
+
+  const lifted = drag.building;
+  const world = worldFromEvent(e);
+  const target = buildingAt(world.x, world.y, lifted);
   drag.active = false;
   drag.building = null;
+
+  if (target && placement.placed.includes(lifted)) swapBuildings(lifted, target);
   draw();
 });
 
@@ -2018,11 +1371,11 @@ canvas.addEventListener("click", (e) => {
     const hit = buildingAt(world.x, world.y);
     if (hit) {
       placement.placed = placement.placed.filter((p) => p !== hit);
-      state.power += hit.building.cost; // refund, so deleting is free to try
+      state.power += Math.floor(hit.building.cost * COMBAT.refundRate);
+      state.lastSpendAt = performance.now();
       refreshPowerUI();
-      burst(hit.x, hit.y, PIPE.color, 10, 90);
+      burst(hit.x, hit.y, INK, 10, 90);
       addShake(1.5);
-      if (typeof Sfx !== "undefined") Sfx.play("delete", 0.8);
     }
   } else if (actionMode === "swap") {
     // handled by the drag handlers
@@ -2034,90 +1387,211 @@ canvas.addEventListener("click", (e) => {
   draw();
 });
 
+/* Toolbar icons use the same drawing as the piece itself, so they recolor with
+   the flag and always show exactly what gets built. */
+function paintToolIcons() {
+  for (const tool of TOOL_BUTTONS) {
+    const icon = document.querySelector("#" + tool.id + " canvas");
+    if (!icon) continue;
+
+    const building = BUILDINGS[tool.building];
+    const g = icon.getContext("2d");
+    const box = icon.width / 2;
+    const scale = box / (building.design === "sniper" ? 58 : 44);
+    g.setTransform(scale, 0, 0, scale, box, box);
+    g.clearRect(-box / scale, -box / scale, (box * 2) / scale, (box * 2) / scale);
+    const shift = building.design === "sniper" ? -10 : 0;
+    paintBuilding(g, building, shift, 0, building.size, STYLE.fill, building.design === "house" ? 0 : -0.5, 2, 0.5);
+  }
+}
+
 function initToolButtons() {
   for (const tool of TOOL_BUTTONS) {
     const button = document.getElementById(tool.id);
     if (!button) continue;
 
     const building = BUILDINGS[tool.building];
-    const parts = [building.name + " - " + building.cost + " power"];
-    if (building.health) parts.push(building.health + " hp");
-    if (building.damage) parts.push(building.damage + " dmg");
-    button.title = parts.join(" | ");
+    const stats = [building.cost + " de ouro", (building.health || 0) + " de vida"];
+    if (building.range) stats.push(building.range + " de alcance");
+    if (building.limit) stats.push("máximo " + building.limit);
+    button.querySelector(".tool-cost").textContent = building.cost;
+    button.querySelector(".tool-name").textContent = building.name;
+    button.querySelector(".tool-desc").textContent = building.desc;
+    button.querySelector(".tool-stats").textContent = stats.join(" · ");
+    button.setAttribute("aria-label", building.name + ", " + stats.join(", "));
     button.addEventListener("click", () => selectBuilding(tool.building));
   }
 
   for (const tool of MODE_BUTTONS) {
     const button = document.getElementById(tool.id);
-    if (!button) continue;
-
-    button.title = tool.mode === "swap" ? "Swap - drag buildings to exchange" : "Delete - click a building to remove";
-    button.addEventListener("click", () => toggleActionMode(tool.mode));
+    if (button) button.addEventListener("click", () => toggleActionMode(tool.mode));
   }
+
+  paintToolIcons();
 }
 
 /* ---------- PLAYER PROFILE + START MENU ---------- */
 /* Filled in by the menu; the name shows on the leaderboard and the color
    replaces every red part of your units (base, buildings, soldiers). */
 const PROFILE = {
-  name: "Player",
-  color: BUILD_STYLE.fill,
+  name: "Capitão",
+  color: STYLE.fill,
   tag: null, // id of the earned achievement shown under the base name
 };
 
 let gameStarted = false;
 
-/* A lighter tint of the base color, used for the base's border ring */
-function lightenHex(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
-  const c = (v) => Math.max(0, Math.min(255, v));
-  const r = c(((n >> 16) & 255) + amt);
-  const g = c(((n >> 8) & 255) + amt);
-  const b = c((n & 255) + amt);
-  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-}
-
-/* Recolor everything that used to be red. The paint functions read
-   BUILD_STYLE.fill and STYLE.circle.* at draw time, so a single swap here
-   recolors the base, every building, and every soldier. */
+/* Everything in the player's color reads STYLE.fill when it is drawn, so this
+   single change recolors the island, the pieces, the boats and the HUD. */
 function setPlayerColor(hex) {
   PROFILE.color = hex;
-  BUILD_STYLE.fill = hex;
-  STYLE.circle.fill = hex;
-
-  // let the CSS HUD mirror the chosen color (selected buttons, focus rings, and
-  // the sidebar SVG icons via the --player-color token in their gradients)
+  STYLE.fill = hex;
   document.documentElement.style.setProperty("--player-color", hex);
+  paintToolIcons();
 }
 
-function startGame() {
-  if (gameStarted) return;
+/* Back to a clean slate; the previous match's pieces never carry over. */
+function resetMatch() {
+  state.power = POWER.start;
+  state.playerHp = COMBAT.player.health;
+  state.upgrades = 0;
+  state.kills = 0;
+  state.orderedFleet = false;
+  state.lastSpendAt = -Infinity;
+
+  placement.placed = [];
+  placement.active = null;
+  soldiers.length = 0;
+  actionMode = null;
+  drag.active = false;
+  drag.building = null;
+
+  for (const list of [FX.wake, FX.orders, FX.bursts]) list.length = 0;
+  FX.shake = 0;
+  resetBattle();
+
+  net.dead = false;
+  net.mySafe = true;
+  net.myPvp = false;
+  net.players = new Map();
+  document.getElementById("toasts").textContent = "";
+
+  updateToolButtons();
+  refreshPowerUI();
+  refreshIslandHealth();
+}
+
+function setPlayButton(busy) {
+  const play = document.getElementById("menu-play");
+  play.disabled = busy;
+  play.textContent = busy ? "Conectando..." : "Zarpar";
+}
+
+function hideEndScreen() {
+  document.getElementById("eliminated").classList.remove("show");
+}
+
+function enterMatch() {
   gameStarted = true;
+  hideEndScreen();
+  document.getElementById("menu").classList.add("hidden");
+  setPlayButton(false);
+}
 
-  const nameInput = document.getElementById("menu-name");
-  const colorInput = document.getElementById("menu-color");
-  const tagSelect = document.getElementById("menu-tag");
-  PROFILE.name = (nameInput && nameInput.value.trim()) || "Player";
-  PROFILE.tag = (tagSelect && tagSelect.value) || null;
+const SERVER_DOWN = "Não foi possível falar com o servidor. Tente de novo em instantes.";
 
-  const menu = document.getElementById("menu");
-  if (menu) menu.classList.add("hidden");
+/* The menu stays up until the server has welcomed the player. */
+function startGame() {
+  if (gameStarted || document.getElementById("menu-play").disabled) return;
 
-  setPlayerColor(colorInput ? colorInput.value : BUILD_STYLE.fill);
+  PROFILE.name = document.getElementById("menu-name").value.trim() || "Capitão";
+  PROFILE.tag = document.getElementById("menu-tag").value || null;
+  setPlayerColor(document.getElementById("menu-color").value);
 
-  // the menu click counts as a gesture: audio (and music) starts here
-  if (typeof Sfx !== "undefined") Sfx.unlock();
+  document.getElementById("menu-status").textContent = "";
+  setPlayButton(true);
+  joinMatch(enterMatch, () => {
+    setPlayButton(false);
+    document.getElementById("menu-status").textContent = SERVER_DOWN;
+  });
+}
 
-  // connect to the multiplayer relay now that we know who we are
-  if (typeof initNet === "function") initNet();
+function showEndScreen(title, text) {
+  document.getElementById("eliminated-title").textContent = title;
+  document.getElementById("eliminated-sub").textContent = text;
+  document.getElementById("end-again").disabled = false;
+  document.getElementById("end-again").textContent = "Zarpar de novo";
+  document.getElementById("eliminated").classList.add("show");
+  document.getElementById("end-again").focus();
+}
 
-  draw();
+function playAgain() {
+  const again = document.getElementById("end-again");
+  again.disabled = true;
+  again.textContent = "Conectando...";
+  joinMatch(enterMatch, () => {
+    again.disabled = false;
+    again.textContent = "Tentar de novo";
+    document.getElementById("eliminated-sub").textContent = SERVER_DOWN;
+  });
+}
+
+function backToMenu() {
+  closeConnection();
+  net.online = false;
+  gameStarted = false;
+  resetMatch();
+  hideEndScreen();
+  populateTagMenu(); // conquests from the last match can be worn now
+  document.getElementById("menu").classList.remove("hidden");
+}
+
+function bindEndScreen() {
+  document.getElementById("end-again").addEventListener("click", playAgain);
+  document.getElementById("end-menu").addEventListener("click", backToMenu);
+}
+
+/* Share the link: with no bots, a friend is how a match gets started. */
+function bindInvite() {
+  document.getElementById("invite").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      showToast("Link copiado: envie para um amigo", "good");
+    } catch {
+      showToast("Envie este link: " + location.href);
+    }
+  });
+}
+
+/* Flag colors are a fixed set, all chosen to stay readable on the paper chart. */
+const FLAG_COLORS = ["#C8553D", "#2E6F8E", "#3F7D4E", "#C48A1A", "#7A4E9E", "#1F8A8A", "#A93F6B", "#54606B"];
+
+function bindFlagPicker() {
+  const picker = document.getElementById("menu-flags");
+  const input = document.getElementById("menu-color");
+
+  FLAG_COLORS.forEach((color, i) => {
+    const flag = document.createElement("button");
+    flag.type = "button";
+    flag.className = "flag";
+    flag.style.setProperty("--flag", color);
+    flag.setAttribute("aria-label", "Bandeira " + (i + 1));
+    flag.setAttribute("aria-pressed", String(i === 0));
+    flag.addEventListener("click", () => {
+      input.value = color;
+      for (const other of picker.children) other.setAttribute("aria-pressed", String(other === flag));
+    });
+    picker.appendChild(flag);
+  });
 }
 
 function bindMenu() {
   const play = document.getElementById("menu-play");
   const nameInput = document.getElementById("menu-name");
 
+  bindFlagPicker();
+  bindEndScreen();
+  bindInvite();
   if (play) play.addEventListener("click", startGame);
   if (nameInput) {
     nameInput.addEventListener("keydown", (e) => {
@@ -2128,9 +1602,12 @@ function bindMenu() {
 
 /* ---------- BOOT ---------- */
 window.addEventListener("resize", resize);
+if (document.fonts) document.fonts.ready.then(buildChart); // redraw labels in their real font
 
 window.addEventListener("DOMContentLoaded", () => {
+  buildChart();
   resize();
+  refreshIslandHealth();
   initToolButtons();
   refreshPowerUI();
   bindMenu();

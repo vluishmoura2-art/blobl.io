@@ -1,12 +1,11 @@
 "use strict";
 
 /* =========================================================
-   Blobl.io - achievements
+   Maré Alta - achievements
 
-   - A scrollable sidebar (center-right) lists every achievement,
-     ticking upward from bottom to top so the whole list can be read.
-   - Locked rows: white background, black border, black text.
-   - Unlocked rows: red background, black border, white text.
+   - A panel under the leaderboard lists every achievement. It opens from the
+     tab on the right edge of the screen and scrolls with the mouse wheel.
+   - Unlocked rows are tinted with the player's color.
    - Progress is stored in localStorage, so unlocks survive reloads.
 
    Progress is derived from the live game state each tick:
@@ -22,23 +21,22 @@
    ========================================================= */
 
 const ACHIEVEMENTS = [
-  { id: "passive", name: "Passive", desc: "Wait for the safe mode timer to finish" },
-  { id: "pvp", name: "PvP", desc: "Press space" },
-  { id: "power", name: "Power", desc: "Build 5 generators" },
-  { id: "very-powerful", name: "Very powerful", desc: "10 generators built" },
-  { id: "monster", name: "You're a monster", desc: "When attacking a player's base or pieces" },
-  { id: "op", name: "OP", desc: "When you build a base with all types of pieces" },
-  { id: "flexible", name: "Flexible", desc: "When using swap" },
-  { id: "amateur", name: "Amateur", desc: "Destroy 5 kills" },
-  { id: "good", name: "You're really good", desc: "Destroy 20 kills" },
-  { id: "pro", name: "Pro", desc: "Destroy 50 kills" },
-  { id: "not-normal", name: "You're not a normal player", desc: "Destroy 100 kills" },
-  { id: "what", name: "WHAT", desc: "Destroy 1000 kills" },
+  { id: "passive", name: "Águas calmas", desc: "Espere a proteção inicial acabar" },
+  { id: "pvp", name: "Bandeira de guerra", desc: "Ative o PvP com a barra de espaço" },
+  { id: "power", name: "Vento a favor", desc: "Construa 5 moinhos" },
+  { id: "very-powerful", name: "Senhor dos moinhos", desc: "Construa 10 moinhos" },
+  { id: "monster", name: "Primeiro ataque", desc: "Alcance a ilha ou uma construção inimiga" },
+  { id: "op", name: "Ilha completa", desc: "Tenha uma construção de cada tipo" },
+  { id: "flexible", name: "Mudança de planos", desc: "Troque duas construções de lugar" },
+  { id: "amateur", name: "Marujo", desc: "Destrua 5 alvos em uma partida" },
+  { id: "good", name: "Corsário", desc: "Destrua 20 alvos em uma partida" },
+  { id: "pro", name: "Capitão", desc: "Destrua 50 alvos em uma partida" },
+  { id: "not-normal", name: "Almirante", desc: "Destrua 100 alvos em uma partida" },
+  { id: "what", name: "Terror dos mares", desc: "Destrua 1000 alvos em uma partida" },
 ];
 
 const ACH_STORAGE_KEY = "blobl.achievements.v1";
 const ACH_TAG_KEY = "blobl.achievementTag.v1";
-const ACH_COLOR = "#e03b3b";
 
 const achievements = {
   unlocked: new Set(),
@@ -114,13 +112,10 @@ function unlockAchievement(id) {
   achievements.unlocked.add(id);
   saveAchievements();
   markAchievementRowDone(id);
+  showToast("Conquista: " + getAchievementName(id), "good");
 
-  if (typeof Sfx !== "undefined") {
-    Sfx.play("connect", 0.75);
-    setTimeout(() => Sfx.play("place", 0.5), 90);
-  }
   if (typeof burst === "function" && typeof PLAYER === "object" && PLAYER) {
-    burst(PLAYER.x, PLAYER.y - PLACE.startSize, ACH_COLOR, 16, 150);
+    burst(PLAYER.x, PLAYER.y - PLACE.startSize, PROFILE.color, 16, 150);
   }
   return true;
 }
@@ -152,10 +147,7 @@ function renderAchievements() {
   const track = document.getElementById("achievements-track");
   if (!track) return;
 
-  // doubled so the CSS marquee can loop seamlessly (translateY -50%)
-  const rows = ACHIEVEMENTS.map(achievementRowHtml).join("");
-  const set = '<div class="ach-set">' + rows + "</div>";
-  track.innerHTML = set + set;
+  track.innerHTML = ACHIEVEMENTS.map(achievementRowHtml).join("");
 }
 
 function markAchievementRowDone(id) {
@@ -252,8 +244,8 @@ function populateTagMenu() {
 
   const unlocked = ACHIEVEMENTS.filter((a) => isAchievementUnlocked(a.id));
   let html = unlocked.length
-    ? '<option value="">No tag</option>'
-    : '<option value="">No tags yet</option>';
+    ? '<option value="">Sem insígnia</option>'
+    : '<option value="">Conquiste uma jogando</option>';
   for (const a of unlocked) {
     html += '<option value="' + a.id + '">' + escapeAchievementText(a.name) + "</option>";
   }
@@ -263,26 +255,13 @@ function populateTagMenu() {
   const current = achievements.tag && isAchievementUnlocked(achievements.tag) ? achievements.tag : "";
   select.value = current;
   setAchievementTag(current || null);
-
-  select.addEventListener("change", () => setAchievementTag(select.value || null));
 }
 
-/* ---------- hover carousel ---------- */
-
-/* The carousel fades in while the cursor sits in a band at the center-right of
-   the screen (a touch larger than the panel, so it's easy to reach). Moving the
-   mouse away fades it back out. */
-const ACH_ZONE = { width: 260, height: 520 };
-
-function pointInAchievementZone(clientX, clientY) {
-  const fromRight = window.innerWidth - clientX;
-  const fromCenter = Math.abs(clientY - window.innerHeight / 2);
-  return fromRight <= ACH_ZONE.width && fromCenter <= ACH_ZONE.height / 2;
-}
+/* ---------- panel ---------- */
 
 function setAchievementsVisible(on) {
-  const panel = document.getElementById("achievements");
-  if (panel) panel.classList.toggle("visible", on);
+  document.getElementById("achievements").classList.toggle("visible", on);
+  document.getElementById("achievements-hint").setAttribute("aria-expanded", String(on));
 }
 
 /* ---------- boot ---------- */
@@ -292,12 +271,10 @@ window.addEventListener("DOMContentLoaded", () => {
   loadTag();
   renderAchievements();
   populateTagMenu();
+  document.getElementById("menu-tag").addEventListener("change", (e) => setAchievementTag(e.target.value || null));
   updateAchievements();
   setInterval(updateAchievements, 250);
 
-  window.addEventListener("mousemove", (e) => {
-    setAchievementsVisible(pointInAchievementZone(e.clientX, e.clientY));
-  });
-  document.addEventListener("mouseleave", () => setAchievementsVisible(false));
-  window.addEventListener("blur", () => setAchievementsVisible(false));
+  document.getElementById("achievements-hint").addEventListener("click", () => setAchievementsVisible(true));
+  document.getElementById("achievements-close").addEventListener("click", () => setAchievementsVisible(false));
 });

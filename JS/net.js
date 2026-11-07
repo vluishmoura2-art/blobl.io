@@ -1,26 +1,23 @@
 "use strict";
 
 /* =========================================================
-   Blobl.io - multiplayer client
+   Maré Alta - multiplayer client
 
    Talks to server.js over a WebSocket:
      - receives its spawn point (base position) + everyone else
-     - relays its own state (power, buildings, soldiers) at 10 Hz
+     - reports what the player did (buildings, boats, research) at 10 Hz
      - renders other players (base, buildings, soldiers, safe zone)
-     - drives the leaderboard (sorted by power)
+     - drives the leaderboard (sorted by gold)
      - space toggles PvP on for yourself (drops the safe zone)
 
-   Fully optional: if the server is unreachable the game keeps
-   working as the existing single-player build.
+   The game is online only: a match starts when the server welcomes
+   the player, and ends if the connection drops.
    ========================================================= */
 
-/* On the public site (https) the WS goes to the same host on the default secure
-   port (443) - Render proxies wss to the app's internal PORT. Only the local
-   http dev server talks to node on :8080 directly. */
-const HOST =
-  (location.protocol === "https:" ? "wss://" : "ws://") +
-  (location.hostname || "localhost") +
-  (location.protocol === "https:" ? "" : ":" + (window.BLOB_PORT || 8080));
+/* The server that delivered the page is the one that runs the game. */
+const HOST = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+
+const JOIN_TIMEOUT = 10000; // ms to wait for the server's welcome
 
 const net = {
   id: null,
@@ -32,11 +29,8 @@ const net = {
   mySafeRemaining: 0,
 };
 
-/* Units the server hasn't confirmed yet (or just killed). A unit that stops
-   appearing in snapshots is removed only after GRACE, so a newly-sent unit
-   isn't culled during the round-trip delay. */
-const GRACE = 350; // ms
-let pendingRemove = new Map(); // uid -> removal due timestamp
+/* How long a sent unit may wait for its first appearance in a snapshot. */
+const ACK_TIMEOUT = 5000; // ms
 
 let netWs = null;
 let netSendTimer = 0;
@@ -44,23 +38,48 @@ let netHadSession = false;
 
 /* ---------- connection ---------- */
 
-function initNet() {
-  netWs = new WebSocket(HOST);
+let joinTimer = 0;
+let onMatchJoined = null;
 
-  netWs.onopen = () => {
-    setStatus("Connected - waiting for spawn...");
+function closeConnection() {
+  clearTimeout(joinTimer);
+  if (!netWs) return;
+  netWs.onopen = netWs.onmessage = netWs.onerror = netWs.onclose = null;
+  netWs.close();
+  netWs = null;
+}
+
+/* Tries to join a new match. Exactly one of the two callbacks will run. */
+function joinMatch(onJoined, onFailed) {
+  closeConnection();
+  netHadSession = false;
+  onMatchJoined = onJoined;
+
+  try {
+    netWs = new WebSocket(HOST);
+  } catch {
+    onFailed();
+    return;
+  }
+
+  const giveUp = () => {
+    closeConnection();
+    net.online = false;
+    onFailed();
   };
+  joinTimer = setTimeout(giveUp, JOIN_TIMEOUT);
 
+  netWs.onopen = () => setStatus("Conectado, aguardando a ilha...");
   netWs.onmessage = (ev) => netMessage(ev.data);
-
-  netWs.onerror = () => {
-    if (!netHadSession) setStatus("Server unreachable");
-  };
-
   netWs.onclose = () => {
+    if (!netHadSession) {
+      giveUp();
+      return;
+    }
     netWs = null;
     net.online = false;
-    setStatus(netHadSession ? "Lost connection - reload to rejoin" : "Offline");
+    setStatus("Desconectado");
+    if (!net.dead) showConnectionLost();
   };
 }
 
@@ -73,6 +92,8 @@ function netMessage(raw) {
   }
 
   if (msg.type === "welcome") {
+    clearTimeout(joinTimer);
+    resetMatch();
     net.id = msg.id;
     net.online = true;
     netHadSession = true;
@@ -99,10 +120,16 @@ function netMessage(raw) {
       netSend({ type: "identity", name: PROFILE.name, color: PROFILE.color, tag: PROFILE.tag || null });
     }
 
+    state.joinedAt = performance.now();
     refreshLeaderboard();
     refreshPowerUI();
+    onMatchJoined();
     draw();
   } else if (msg.type === "update") {
+    syncMotion(msg.players);
+    syncHits(msg.players);
+    if (Array.isArray(msg.events)) handleBattleEvents(msg.events);
+
     net.players = new Map();
     for (const p of msg.players) net.players.set(p.id, p);
 
@@ -113,11 +140,13 @@ function netMessage(raw) {
   }
 }
 
-/* ---------- self reconciliation (server is authoritative on hp) ---------- */
+/* ---------- self reconciliation (the server has the last word) ---------- */
 
-/* Apply the server's view of our own units: adopt hp, drop anything the server
-   stopped reporting (combat kills) after a short grace period, and surface a
-   base-health bar + the eliminated overlay. */
+const SETTLE_MS = 1000; // time for a purchase or a swap to reach the server and come back
+const BOAT_DRIFT = 120; // a boat this far from the server's position gets corrected (allows for slow connections)
+
+/* Apply the server's view of our own game: gold, research, hp and positions. A
+   recent purchase or swap hasn't come back yet, so it isn't corrected yet. */
 function reconcileSelf(me) {
   if (!me) return;
 
@@ -127,8 +156,9 @@ function reconcileSelf(me) {
   net.mySafeRemaining = Math.max(0, me.safeUntil - Date.now());
 
   // "Passive": the safe-zone timer ran out on its own (space was never pressed)
-  if (wasSafe && !me.safe && !me.pvp && typeof unlockAchievement === "function") {
+  if (wasSafe && !me.safe && !me.pvp) {
     unlockAchievement("passive");
+    showToast("Fim da proteção: agora sua ilha pode ser atacada", "bad");
   }
 
   // kill count relayed by the server drives the kill-milestone achievements
@@ -140,9 +170,10 @@ function reconcileSelf(me) {
     const prev = state.playerHp;
     state.playerHp = Math.max(0, Math.min(me.health, COMBAT.player.health));
     if (prev - state.playerHp > 0.5) {
-      if (typeof Sfx !== "undefined") Sfx.play("hit", 0.6);
-      if (typeof addShake === "function") addShake(3);
+      addShake(2);
+      notifyIslandHit();
     }
+    refreshIslandHealth();
   }
 
   if (me.dead && !net.dead) {
@@ -151,52 +182,81 @@ function reconcileSelf(me) {
   }
   if (!me.dead) net.dead = false;
 
+  refreshPowerUI();
+
   const now = performance.now();
+  const settled = now - state.lastSpendAt > SETTLE_MS;
+
+  if (settled) {
+    if (Math.abs(me.power - state.power) > 2) state.power = me.power;
+    state.upgrades = me.u;
+  }
 
   const serverB = new Map();
   if (Array.isArray(me.buildings)) {
     for (const rb of me.buildings) serverB.set(rb.uid, rb);
   }
-  for (const p of placement.placed) {
+  placement.placed = placement.placed.filter((p) => {
     const rb = serverB.get(p.uid);
     if (rb) {
       p.hp = rb.hp;
-      pendingRemove.delete(p.uid);
-    } else if (!pendingRemove.has(p.uid)) {
-      pendingRemove.set(p.uid, now + GRACE);
+      if (settled && rb.t) p.tier = rb.t;
+      if (settled) {
+        p.x = rb.x;
+        p.y = rb.y;
+      }
     }
-  }
-  placement.placed = placement.placed.filter((p) => !(pendingRemove.has(p.uid) && pendingRemove.get(p.uid) < now));
+    return survivesSnapshot(p, !!rb, now);
+  });
 
   const serverS = new Map();
   if (Array.isArray(me.soldiers)) {
     for (const rs of me.soldiers) serverS.set(rs.uid, rs);
   }
-  for (const s of soldiers) {
+  for (let i = soldiers.length - 1; i >= 0; i--) {
+    const s = soldiers[i];
     const rs = serverS.get(s.uid);
     if (rs) {
       s.hp = rs.hp;
-      pendingRemove.delete(s.uid);
-    } else if (!pendingRemove.has(s.uid)) {
-      pendingRemove.set(s.uid, now + GRACE);
+      if (Math.hypot(rs.x - s.x, rs.y - s.y) > BOAT_DRIFT) {
+        s.x = rs.x;
+        s.y = rs.y;
+      }
     }
-  }
-  for (let i = soldiers.length - 1; i >= 0; i--) {
-    const s = soldiers[i];
-    if (pendingRemove.has(s.uid) && pendingRemove.get(s.uid) < now) soldiers.splice(i, 1);
+    if (!survivesSnapshot(s, !!rs, now)) soldiers.splice(i, 1);
   }
 }
 
-function showEliminated() {
-  const el = document.getElementById("eliminated");
-  if (el) el.classList.add("show");
-  if (typeof Sfx !== "undefined") Sfx.play("eliminated");
-  if (typeof addShake === "function") addShake(6);
-  if (typeof burst === "function") {
-    burst(PLAYER.x, PLAYER.y, PROFILE ? PROFILE.color : "#e03b3b", 30, 200);
-    burst(PLAYER.x, PLAYER.y, "#ffffff", 14, 120);
+/* A unit the server has listed and then dropped was killed in combat. One it
+   has never listed may still be on its way, however slow the connection or the
+   frame rate, so it stays until the first-appearance limit runs out; a piece
+   the server refused disappears then. */
+function survivesSnapshot(unit, reported, now) {
+  if (reported) {
+    unit.acked = true;
+    return true;
   }
-  if (typeof draw === "function") draw();
+  if (unit.acked) return false;
+  return !(unit.sentAt && now - unit.sentAt > ACK_TIMEOUT);
+}
+
+function showEliminated() {
+  const seconds = Math.round((performance.now() - state.joinedAt) / 1000);
+  const killer = net.players.get(battle.sunkBy);
+  const minutes = Math.floor(seconds / 60);
+  const time = minutes > 0 ? minutes + " min " + (seconds % 60) + " s" : seconds + " s";
+  const targets = state.kills === 1 ? "1 alvo" : state.kills + " alvos";
+
+  showEndScreen(
+    "Naufragou",
+    (killer ? "Sua ilha foi afundada por " + killer.name + ". " : "Sua ilha foi destruída. ") +
+      "Você resistiu por " + time + " e destruiu " + targets + "."
+  );
+  draw();
+}
+
+function showConnectionLost() {
+  showEndScreen("Conexão perdida", "A partida terminou porque a ligação com o servidor caiu.");
 }
 
 /* ---------- outgoing state (10 Hz) ---------- */
@@ -208,9 +268,12 @@ function netUpdate(dt) {
   if (netSendTimer < 0.1) return;
   netSendTimer = 0;
 
+  const now = performance.now();
+  for (const unit of placement.placed) unit.sentAt ??= now;
+  for (const unit of soldiers) unit.sentAt ??= now;
+
   netSend({
     type: "state",
-    power: state.power,
     u: state.upgrades || 0, // armory research bitmask
     buildings: placement.placed.map((p) => ({
       b: BUILDINGS.indexOf(p.building),
@@ -234,11 +297,12 @@ function onSpaceForPvp() {
   if (!net.online || net.dead) return;
 
   net.myPvp = true;
+  const wasSafe = net.mySafe;
   net.mySafe = false;
   netSend({ type: "pvp" });
-  if (typeof Sfx !== "undefined") Sfx.play("pvp");
+  if (wasSafe) showToast("PvP ativo: agora você pode atacar e ser atacado", "bad");
   if (typeof addShake === "function") addShake(2.5);
-  if (typeof burst === "function") burst(PLAYER.x, PLAYER.y, PROFILE ? PROFILE.color : "#e03b3b", 16, 150);
+  if (typeof burst === "function") burst(PLAYER.x, PLAYER.y, PROFILE.color, 16, 150);
   if (typeof unlockAchievement === "function") unlockAchievement("pvp");
   draw();
 }
@@ -254,9 +318,9 @@ function drawRemotePlayers() {
       // our own safe-zone / PvP indicator
       if (net.mySafe) {
         drawSafeRing(PLAYER.x, PLAYER.y);
-        drawStatusLabel(PLAYER.x, PLAYER.y - PLACE.startSize - 34, "SAFE " + Math.ceil(net.mySafeRemaining / 1000) + "s", "#2fcf4f");
+        drawPlate(PLAYER.x, PLAYER.y - PLACE.startSize - 40, "Protegido: " + Math.ceil(net.mySafeRemaining / 1000) + " s", SAFE_COLOR);
       } else if (net.myPvp) {
-        drawStatusLabel(PLAYER.x, PLAYER.y - PLACE.startSize - 34, "PvP ON", "#e03939");
+        drawPlate(PLAYER.x, PLAYER.y - PLACE.startSize - 40, "PvP ativo", "#B23A2E");
       }
       continue;
     }
@@ -266,183 +330,66 @@ function drawRemotePlayers() {
 }
 
 function drawRemotePlayer(rp) {
-  const color = rp.color || "#e03b3b";
-  const t = performance.now() / 1000;
-  const pulse = 0.5 + 0.5 * Math.sin(t * 2.2 + (rp.id || 0) * 7);
+  const r = PLACE.startSize;
+
+  if (rp.dead) {
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    paintWreck(ctx, rp.x, rp.y, r, rp.id);
+    drawBaseLabel(rp.x, rp.y, rp.name, null);
+    ctx.restore();
+    return;
+  }
+
+  const color = rp.color;
   const armored = (rp.u & COMBAT.upgradeFlags.armor) !== 0;
   const cannons = (rp.u & COMBAT.upgradeFlags.cannons) !== 0;
   const cloaked = (rp.u & COMBAT.upgradeFlags.cloak) !== 0;
 
-  // base circle: gradient orb with a gradient rim and neon glow (matches ours)
-  const light = lightenHex(color, 60);
-  const deep = darkenHex(color, 70);
-  ctx.save();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 14 + 8 * pulse;
-  ctx.beginPath();
-  ctx.arc(rp.x, rp.y, PLACE.startSize, 0, Math.PI * 2);
-  const orb = ctx.createRadialGradient(
-    rp.x - PLACE.startSize * 0.3,
-    rp.y - PLACE.startSize * 0.38,
-    PLACE.startSize * 0.12,
-    rp.x,
-    rp.y,
-    PLACE.startSize * 1.02
-  );
-  orb.addColorStop(0, lightenHex(color, 75));
-  orb.addColorStop(0.45, light);
-  orb.addColorStop(1, deep);
-  ctx.fillStyle = orb;
-  ctx.fill();
-  ctx.lineWidth = 6;
-  const rim = ctx.createLinearGradient(
-    rp.x - PLACE.startSize,
-    rp.y - PLACE.startSize,
-    rp.x + PLACE.startSize,
-    rp.y + PLACE.startSize
-  );
-  rim.addColorStop(0, lightenHex(color, 90));
-  rim.addColorStop(0.5, lightenHex(color, 25));
-  rim.addColorStop(1, darkenHex(color, 30));
-  ctx.strokeStyle = rim;
-  ctx.stroke();
-  ctx.restore();
+  drawTide(rp.x, rp.y, rp.id);
+  paintIsland(ctx, rp.x, rp.y, r, color, rp.id);
+  drawHitFlash(pieceKey(rp.id, "island"), rp.x, rp.y, r);
+  drawObjectHp(rp.x, rp.y - r - 14, r * 1.8, rp.health, COMBAT.player.health);
 
-  if (typeof rp.health === "number") {
-    drawObjectHp(rp.x, rp.y - PLACE.startSize - 12, PLACE.startSize * 1.8, rp.health, COMBAT.player.health);
+  for (const rb of rp.buildings) {
+    const b = BUILDINGS[rb.b];
+    if (!b) continue;
+    const key = pieceKey(rp.id, rb.uid);
+    paintBuilding(ctx, b, rb.x, rb.y, b.size, color, aimOf(key, rb.dir || 0), rb.t || 1, FX.t);
+    drawHitFlash(key, rb.x, rb.y, b.size);
+    drawObjectHp(rb.x, rb.y - b.size - 10, Math.max(28, b.size * 1.4), rb.hp, b.health);
   }
 
-  // buildings (tents carry their upgrade tier, the armory its research hub)
-  if (Array.isArray(rp.buildings)) {
-    for (const rb of rp.buildings) paintRemoteBuilding(color, rb);
+  for (const s of rp.soldiers) {
+    const kind = s.kind || "soldier";
+    const stat = COMBAT.units[kind] || COMBAT.soldier;
+    const at = boatPosition(rp.id, s);
+
+    ctx.save();
+    // fog curtain: enemy captains see a pale shape, enemy cannons see nothing
+    if (cloaked && kind !== "soldier") ctx.globalAlpha = 0.35;
+    paintBoat(ctx, at.x, at.y, stat.size, at.dir, color, kind, cannons && kind !== "soldier");
+    ctx.restore();
+    drawHitFlash(pieceKey(rp.id, s.uid), at.x, at.y, stat.size * 0.8);
+
+    drawObjectHp(at.x, at.y - stat.size - 8, stat.size * 1.6, s.hp, stat.health * (armored ? COMBAT.powerArmorMult : 1));
   }
 
-  // units: soldiers, tanks and siege tanks with their own sizes
-  if (Array.isArray(rp.soldiers)) {
-    for (const s of rp.soldiers) {
-      const kind = s.kind || "soldier";
-      const stat = COMBAT.units[kind] || COMBAT.soldier;
-
-      ctx.save();
-      if (cloaked && kind !== "soldier") {
-        // Cloaking Device: enemy players see a ghost, enemy towers see nothing
-        ctx.globalAlpha = 0.28 + 0.14 * Math.sin(t * 3.2 + s.uid);
-      }
-      paintSoldier(ctx, s.x, s.y, stat.size, s.dir || 0, color, kind);
-      if (cannons && kind !== "soldier") {
-        paintUnitCannon(ctx, s.x, s.y, stat.size, s.dir || 0);
-      }
-      ctx.restore();
-
-      if (typeof s.hp === "number") {
-        const max = stat.health * (armored ? COMBAT.powerArmorMult : 1);
-        drawObjectHp(s.x, s.y - stat.size - 8, stat.size * 1.6, s.hp, max);
-      }
-    }
-  }
-
-  // safe zone ring (over everything so it stays visible)
   if (rp.safe) drawSafeRing(rp.x, rp.y);
-
-  // name + earned achievement tag on the base ball
-  if (typeof drawBaseLabel === "function") drawBaseLabel(rp.x, rp.y, rp.name, rp.tag || null);
+  drawBaseLabel(rp.x, rp.y, rp.name, rp.tag || null);
 }
 
-function paintRemoteBuilding(color, rb) {
-  const b = BUILDINGS[rb.b];
-  if (!b) return;
+/* A protected island: a teal dashed line printed around its coast. */
+const SAFE_COLOR = "#1F7A7A";
 
-  if (b.design === "turret") {
-    paintTurret(ctx, rb.x, rb.y, b.size, rb.dir || 0, b.barrel, color);
-  } else if (b.design === "generator") {
-    paintGenerator(ctx, rb.x, rb.y, b.size, color);
-  } else if (b.design === "house") {
-    paintHouse(ctx, rb.x, rb.y, b.size, color);
-  } else if (b.design === "tent") {
-    paintTent(ctx, rb.x, rb.y, b.size, color, rb.dir || 0, rb.t || 1);
-  } else if (b.design === "armory") {
-    paintArmory(ctx, rb.x, rb.y, b.size, color, rb.dir || 0);
-  } else {
-    // default: plain circle (wall and everything else)
-    ctx.beginPath();
-    ctx.arc(rb.x, rb.y, b.size, 0, Math.PI * 2);
-    ctx.fillStyle = orbGradient(ctx, rb.x, rb.y, b.size, color);
-    ctx.fill();
-    ctx.lineWidth = BUILD_STYLE.borderWidth;
-    ctx.strokeStyle = BUILD_STYLE.border;
-    ctx.stroke();
-  }
-
-  if (typeof rb.hp === "number" && b.health) {
-    drawObjectHp(rb.x, rb.y - b.size - 8, Math.max(28, b.size * 1.4), rb.hp, b.health);
-  }
-}
-
-/* Green dashed ring marking a protected base (glass glow on the ocean) */
 function drawSafeRing(x, y) {
   ctx.save();
-  ctx.setLineDash(PLACE.dashed);
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "#37d67a";
-  ctx.shadowColor = "rgba(55, 214, 122, 0.75)";
-  ctx.shadowBlur = 12;
+  ctx.setLineDash([16, 8]);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = SAFE_COLOR;
   ctx.beginPath();
-  ctx.arc(x, y, PLACE.startSize + 14, 0, Math.PI * 2);
+  ctx.arc(x, y, PLACE.startSize + 22, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.restore();
-}
-
-/* Status pill under the base name: a translucent glass capsule with a thin
-   colored border, a softly glowing, flashing status dot and high-contrast text.
-   `color` tints the border/dot/glow to match the status (mint = protected,
-   red = PvP). `y` is the bottom edge of the pill. */
-function drawStatusLabel(x, y, text, color) {
-  const t = typeof FX === "object" && FX && FX.t ? FX.t : performance.now() / 1000;
-
-  ctx.save();
-  ctx.font = "800 12px 'Montserrat', system-ui, sans-serif";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-
-  const label = text;
-  const padX = 13;
-  const h = 24;
-  const gap = 7;
-  const dotR = 3.6;
-  const tw = ctx.measureText(label).width;
-  const w = padX * 2 + dotR * 2 + gap + tw;
-  const left = x - w / 2;
-  const top = y - h;
-
-  // translucent glass capsule with a thin status-colored edge
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(left, top, w, h, h / 2);
-  else ctx.rect(left, top, w, h);
-  ctx.fillStyle = "rgba(7, 16, 27, 0.62)";
-  ctx.fill();
-  ctx.lineWidth = 1.25;
-  ctx.strokeStyle = colorWithAlpha(color, 0.6);
-  ctx.shadowColor = colorWithAlpha(color, 0.5);
-  ctx.shadowBlur = 10;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // bright, flashing status dot on the left
-  const flash = 0.5 + 0.5 * Math.sin(t * 6);
-  const cx = left + padX + dotR;
-  const cy = top + h / 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-  ctx.fillStyle = colorWithAlpha(color, 0.4 + 0.6 * flash);
-  ctx.shadowColor = colorWithAlpha(color, 0.9);
-  ctx.shadowBlur = 7 + 6 * flash;
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // label
-  ctx.fillStyle = "#eef6ff";
-  ctx.fillText(label, cx + dotR + gap, cy + 0.5);
-
   ctx.restore();
 }
 
@@ -462,13 +409,13 @@ function refreshLeaderboard() {
     .map((p, i) => {
       const you = p.id === net.id;
       const cls = (you ? " you" : "") + (p.dead ? " dead" : "");
-      const rank = i === 0 ? '<span class="lb-rank lb-first">&#9733;</span>' : '<span class="lb-rank">' + (i + 1) + "</span>";
+      const rank = '<span class="lb-rank">' + (i + 1) + "</span>";
       return (
         '<div class="lb-row' + cls + '">' +
         rank +
-        '<span class="lb-dot" style="background:' + p.color + '"></span>' +
+        '<span class="lb-flag" style="background:' + p.color + '"></span>' +
         '<span class="lb-name">' + escapeHtml(p.name) + "</span>" +
-        '<span class="lb-power"><svg class="lb-bolt" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.8 13.6a.6.6 0 0 0 .47.98H11l-1.2 7.1a.55.55 0 0 0 .97.42L19.2 10.4a.6.6 0 0 0-.47-.98H13l1.4-6.86a.55.55 0 0 0-.97-.42L13 2Z"/></svg>' +
+        '<span class="lb-power">' +
         Math.floor(p.power || 0) +
         "</span>" +
         "</div>"
@@ -476,10 +423,13 @@ function refreshLeaderboard() {
     })
     .join("");
 
-  list.innerHTML = rows || '<div class="lb-row">No players</div>';
+  list.innerHTML = rows || '<div class="lb-row">Sem jogadores</div>';
+
+  const others = [...net.players.values()].some((p) => p.id !== net.id && !p.dead);
+  document.getElementById("alone").classList.toggle("visible", net.online && !others);
 
   const n = net.players.size;
-  setStatus(net.online ? "Online - " + n + " player" + (n === 1 ? "" : "s") : "Offline");
+  setStatus(net.online ? n + (n === 1 ? " capitão online" : " capitães online") : "Desconectado");
 }
 
 function escapeHtml(s) {

@@ -1,193 +1,184 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Blobl.io - canvas rendering base." />
-  <title>Blobl.io</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Ccircle%20cx='8'%20cy='8'%20r='7'%20fill='%23e03b3b'/%3E%3C/svg%3E" />
+  <meta name="description" content="Maré Alta: erga sua ilha, arme a costa e lance sua frota contra outros capitães, em um jogo multiplayer de navegador." />
+  <title>Maré Alta</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20fill='%23E1E4D7'/%3E%3Cpath%20d='M3%209c0-4%203-6%206-5s4%203%204%205-3%204-6%203-4-1-4-3z'%20fill='%23C8553D'%20stroke='%232B3A42'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@500;700;800&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="CSS/style.css" />
 </head>
 <body>
-  <canvas id="canvas" aria-label="Canvas" role="img"></canvas>
+  <canvas id="canvas" aria-label="Mapa do jogo" role="img"></canvas>
 
-  <!-- Shared neon gradients for the sidebar vector icons. The stops read the
-       live --player-color token, so the icons recolor with the base. -->
-  <svg class="icon-defs" aria-hidden="true" focusable="false">
-    <defs>
-      <linearGradient id="toolGrad" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" class="grad-a" stop-color="#ff8a6e" />
-        <stop offset="1" class="grad-b" stop-color="#c81e3a" />
-      </linearGradient>
-      <linearGradient id="modeGrad" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#9fdcff" />
-        <stop offset="1" stop-color="#3f8fe0" />
-      </linearGradient>
-    </defs>
-  </svg>
-
-  <button id="wall-button" type="button" aria-label="Toggle walls" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4 7h16v10H4z" />
-        <path d="M4 12h16" />
-        <path d="M9.5 7v5M14.5 7v5M12 12v5" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="turret-button" type="button" aria-label="Toggle small turrets" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="15" r="4.6" />
-        <path d="M12 10.4V4.4" />
-        <path d="M9.4 4.4h5.2" />
-        <circle cx="12" cy="15" r="1.5" fill="url(#toolGrad)" stroke="none" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="generator-button" type="button" aria-label="Toggle generators" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 3.1 19.7 7.55v8.9L12 20.9 4.3 16.45v-8.9z" />
-        <path d="M13 7.6 9.2 13h2.5l-.7 3.4 3.8-5.4h-2.5z" fill="url(#toolGrad)" stroke="none" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="house-button" type="button" aria-label="Toggle houses" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3.8 11.2 12 4l8.2 7.2" />
-        <path d="M6.2 10.2V20h11.6v-9.8" />
-        <path d="M10.1 20v-4.4h3.8V20" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="sniper-button" type="button" aria-label="Toggle sniper turrets" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="13" r="5.6" />
-        <path d="M11 4.6v2.8M11 18.6v.8M2.6 13h2.8M16.6 13h4.8" />
-        <path d="M15 9 21 3" />
-        <circle cx="11" cy="13" r="1.4" fill="url(#toolGrad)" stroke="none" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="armory-button" type="button" aria-label="Toggle armory research" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="7.4" />
-        <circle cx="12" cy="12" r="3.1" />
-        <path d="M19.4 12h2M2.6 12h2M12 4.6v-2M12 21.4v-2M17.2 17.2l1.4 1.4M5.4 5.4l1.4 1.4M17.2 6.8l1.4-1.4M5.4 18.6l1.4-1.4" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="tent-button" type="button" aria-label="Toggle tents" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#toolGrad)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3.6 20 12 4l8.4 16z" />
-        <path d="M9 20l3-6.2 3 6.2" />
-        <path d="M12 4V1.8" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="swap-button" type="button" aria-label="Toggle drag-and-drop swap mode" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#modeGrad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <div id="toolbar" role="toolbar" aria-label="Ferramentas de construção">
+    <button id="wall-button" class="tool-button" type="button" aria-pressed="false">
+      <canvas class="tool-icon" width="96" height="96" aria-hidden="true"></canvas>
+      <span class="tool-key" aria-hidden="true">1</span>
+      <span class="tool-cost" aria-hidden="true"></span>
+      <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
+    </button>
+    <button id="turret-button" class="tool-button" type="button" aria-pressed="false">
+      <canvas class="tool-icon" width="96" height="96" aria-hidden="true"></canvas>
+      <span class="tool-key" aria-hidden="true">2</span>
+      <span class="tool-cost" aria-hidden="true"></span>
+      <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
+    </button>
+    <button id="generator-button" class="tool-button" type="button" aria-pressed="false">
+      <canvas class="tool-icon" width="96" height="96" aria-hidden="true"></canvas>
+      <span class="tool-key" aria-hidden="true">3</span>
+      <span class="tool-cost" aria-hidden="true"></span>
+      <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
+    </button>
+    <button id="house-button" class="tool-button" type="button" aria-pressed="false">
+      <canvas class="tool-icon" width="96" height="96" aria-hidden="true"></canvas>
+      <span class="tool-key" aria-hidden="true">4</span>
+      <span class="tool-cost" aria-hidden="true"></span>
+      <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
+    </button>
+    <button id="sniper-button" class="tool-button" type="button" aria-pressed="false">
+      <canvas class="tool-icon" width="96" height="96" aria-hidden="true"></canvas>
+      <span class="tool-key" aria-hidden="true">5</span>
+      <span class="tool-cost" aria-hidden="true"></span>
+      <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
+    </button>
+    <button id="armory-button" class="tool-button" type="button" aria-pressed="false">
+      <canvas class="tool-icon" width="96" height="96" aria-hidden="true"></canvas>
+      <span class="tool-key" aria-hidden="true">6</span>
+      <span class="tool-cost" aria-hidden="true"></span>
+      <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
+    </button>
+    <button id="tent-button" class="tool-button" type="button" aria-pressed="false">
+      <canvas class="tool-icon" width="96" height="96" aria-hidden="true"></canvas>
+      <span class="tool-key" aria-hidden="true">7</span>
+      <span class="tool-cost" aria-hidden="true"></span>
+      <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
+    </button>
+    <span class="tool-divider" aria-hidden="true"></span>
+    <button id="swap-button" class="tool-button" type="button" aria-pressed="false" aria-label="Trocar de lugar">
+      <svg class="tool-glyph" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4.5 9h11M12.6 5.4 16.2 9l-3.6 3.6" />
         <path d="M19.5 15h-11M11.4 11.4 7.8 15l3.6 3.6" />
-      </g>
-    </svg>
-  </button>
-
-  <button id="delete-button" type="button" aria-label="Toggle delete mode" aria-pressed="false">
-    <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="none" stroke="url(#modeGrad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      </svg>
+      <span class="tool-tip"><span class="tool-name">Trocar de lugar</span><span class="tool-desc">Arraste uma construção até outra para trocá-las.</span></span>
+    </button>
+    <button id="delete-button" class="tool-button" type="button" aria-pressed="false" aria-label="Remover">
+      <svg class="tool-glyph" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 6.5h16" />
         <path d="M9 6.5V4.2h6v2.3" />
         <path d="M6.6 6.5 7.6 20h8.8l1-13.5" />
         <path d="M10.2 10v6.4M13.8 10v6.4" />
-      </g>
-    </svg>
-  </button>
-
-  <div id="power-box" role="status" aria-live="polite" aria-label="Power">
-    <svg id="power-bolt" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M13 2 4.8 13.6a.6.6 0 0 0 .47.98H11l-1.2 7.1a.55.55 0 0 0 .97.42L19.2 10.4a.6.6 0 0 0-.47-.98H13l1.4-6.86a.55.55 0 0 0-.97-.42L13 2Z" />
-    </svg>
-    <span id="power-text">
-      <span id="power-label">Power</span>
-      <span id="power-value">200</span>
-    </span>
+      </svg>
+      <span class="tool-tip"><span class="tool-name">Remover</span><span class="tool-desc">Clique em uma construção para removê-la e receber metade do preço.</span></span>
+    </button>
   </div>
 
-  <div id="leaderboard">
-    <div id="leaderboard-title">
-      <svg id="trophy-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M7 3h10v2h3.5v2.5A4.5 4.5 0 0 1 16 12h-.6a5 5 0 0 1-2.4 3.6l.5 2.9H17v2H7v-2h3.5l.5-2.9A5 5 0 0 1 8.6 12H8a4.5 4.5 0 0 1-4.5-4.5V5H7V3ZM6.5 7v3A2.5 2.5 0 0 0 9 12.5V7H6.5Zm11 0v5.5A2.5 2.5 0 0 0 17.5 10V7H17.5Z" />
+  <div id="hud-left">
+    <div id="power-box" role="status" aria-label="Ouro">
+      <svg id="power-coin" viewBox="0 0 30 30" aria-hidden="true">
+        <circle cx="15" cy="15" r="13" fill="#D9A62E" stroke="#2B3A42" stroke-width="2" />
+        <circle cx="15" cy="15" r="8.500" fill="none" stroke="#2B3A42" stroke-width="1.500" />
       </svg>
-      <span>Leaderboard</span>
+      <span id="power-text">
+        <span id="power-label">Ouro</span>
+        <span id="power-value">200</span>
+      </span>
+      <span id="power-rate">+0/s</span>
     </div>
-    <div id="leaderboard-list"><div class="lb-row">No players</div></div>
-    <div id="connection-status">Offline</div>
-    <div id="mp-hint">Space = enable PvP</div>
-    <div id="audio-state" title="M = toggle sound">
-      <svg id="speaker-on" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4v-5Z" />
-        <path d="M15 9.2a4 4 0 0 1 0 5.6" class="wave" />
-        <path d="M17.6 6.6a7.5 7.5 0 0 1 0 10.8" class="wave" />
-      </svg>
-      <svg id="speaker-off" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4v-5Z" />
-        <path d="m15.4 9.6 4.4 4.8M19.8 9.6l-4.4 4.8" class="wave" />
-      </svg>
-    </div>
-  </div>
 
-  <div id="achievements" aria-label="Achievements">
-    <div id="achievements-title">Achievements</div>
-    <div id="achievements-viewport">
-      <div id="achievements-track"></div>
+    <div id="island-hp" aria-label="Vida da ilha">
+      <span id="island-hp-label">Ilha</span>
+      <span id="island-hp-bar"><span id="island-hp-fill"></span></span>
+      <span id="island-hp-value">500</span>
+    </div>
+
+    <div id="fleet" aria-label="Frota"></div>
+
+    <div id="guide">
+      <div id="guide-title">
+        <span>Primeiros passos</span>
+        <button id="guide-close" type="button" aria-label="Fechar primeiros passos">&times;</button>
+      </div>
+      <ol id="guide-list"></ol>
+      <p id="guide-keys">W A S D: mover a câmera · H: voltar à ilha</p>
     </div>
   </div>
 
-  <div id="achievements-hint" aria-hidden="true"><span>Achievements</span></div>
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <div id="damage-edge" aria-hidden="true"></div>
+
+  <div id="hud-right">
+    <div id="leaderboard">
+      <div id="leaderboard-title">Placar</div>
+      <div id="leaderboard-list"><div class="lb-row">Sem jogadores</div></div>
+      <div id="connection-status">Desconectado</div>
+      <div id="mp-hint">Espaço: ativar PvP</div>
+      <div id="alone">
+        <p>Aguardando outros capitães. Enquanto isso, fortaleça sua ilha.</p>
+        <button id="invite" type="button">Copiar convite</button>
+      </div>
+    </div>
+
+    <div id="achievements" aria-label="Conquistas">
+      <div id="achievements-title">
+        <span>Conquistas</span>
+        <button id="achievements-close" type="button" aria-label="Fechar conquistas">&times;</button>
+      </div>
+      <div id="achievements-viewport">
+        <div id="achievements-track"></div>
+      </div>
+    </div>
+
+    <button id="achievements-hint" type="button" aria-expanded="false">Conquistas</button>
+  </div>
 
   <div id="eliminated">
-    <div id="eliminated-title">ELIMINATED</div>
-    <div id="eliminated-sub">Your base was destroyed by enemy soldiers.<br />Reload to join a new match.</div>
+    <div id="eliminated-title">Naufragou</div>
+    <div id="eliminated-sub">Sua ilha foi destruída.</div>
+    <div id="end-actions">
+      <button id="end-again" type="button">Zarpar de novo</button>
+      <button id="end-menu" type="button">Voltar ao menu</button>
+    </div>
   </div>
 
   <div id="menu">
-    <h1 id="menu-title">BLOBL<span class="io">.IO</span></h1>
+    <svg id="menu-rose" viewBox="0 0 200 200" aria-hidden="true">
+      <circle cx="100" cy="100" r="98" fill="none" stroke="#2B3A42" stroke-width="1.500" />
+      <circle cx="100" cy="100" r="84" fill="none" stroke="#2B3A42" />
+      <g transform="rotate(0 100 100)"><path d="M100 4L100 100L88 100Z" fill="#2B3A42"/><path d="M100 4L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g><g transform="rotate(45 100 100)"><path d="M100 44L100 100L88 100Z" fill="#2B3A42"/><path d="M100 44L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g><g transform="rotate(90 100 100)"><path d="M100 4L100 100L88 100Z" fill="#2B3A42"/><path d="M100 4L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g><g transform="rotate(135 100 100)"><path d="M100 44L100 100L88 100Z" fill="#2B3A42"/><path d="M100 44L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g><g transform="rotate(180 100 100)"><path d="M100 4L100 100L88 100Z" fill="#2B3A42"/><path d="M100 4L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g><g transform="rotate(225 100 100)"><path d="M100 44L100 100L88 100Z" fill="#2B3A42"/><path d="M100 44L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g><g transform="rotate(270 100 100)"><path d="M100 4L100 100L88 100Z" fill="#2B3A42"/><path d="M100 4L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g><g transform="rotate(315 100 100)"><path d="M100 44L100 100L88 100Z" fill="#2B3A42"/><path d="M100 44L100 100L112 100Z" fill="#F3EBD9" stroke="#2B3A42"/></g>
+    </svg>
+    <div id="menu-heading">
+      <h1 id="menu-title">Maré Alta</h1>
+      <p id="menu-subtitle">Erga sua ilha. Arme a costa. Lance sua frota.</p>
+    </div>
     <div id="menu-card">
+      <label class="menu-field">
+        <span class="menu-label">Nome do capitão</span>
+        <input id="menu-name" type="text" maxlength="16" placeholder="Capitão" spellcheck="false" autocomplete="off" />
+      </label>
       <div class="menu-field">
-        <input id="menu-name" type="text" maxlength="16" placeholder="Captain name" value="Player" aria-label="Player name" spellcheck="false" autocomplete="off" />
-        <label class="menu-swatch" for="menu-color" title="Base color">
-          <input id="menu-color" type="color" value="#e03b3b" aria-label="Base color" />
-        </label>
+        <span class="menu-label">Bandeira</span>
+        <div id="menu-flags"></div>
+        <input id="menu-color" type="hidden" value="#C8553D" />
       </div>
-      <div class="menu-field menu-tag-field">
-        <label id="menu-tag-label" for="menu-tag">Achievement tag</label>
-        <select id="menu-tag" aria-label="Achievement tag"></select>
-      </div>
-      <button id="menu-play" type="button">set sail</button>
+      <label class="menu-field">
+        <span class="menu-label">Insígnia</span>
+        <select id="menu-tag"></select>
+      </label>
+      <button id="menu-play" type="button">Zarpar</button>
+      <p id="menu-status" role="alert"></p>
     </div>
   </div>
 
-  <script src="JS/audio.js" defer></script>
+  <script src="JS/art.js" defer></script>
   <script src="shared/combat.js" defer></script>
   <script src="JS/main.js" defer></script>
   <script src="JS/net.js" defer></script>
+  <script src="JS/battle.js" defer></script>
+  <script src="JS/guide.js" defer></script>
   <script src="JS/achievements.js" defer></script>
 </body>
 </html>

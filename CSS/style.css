@@ -5,19 +5,17 @@
 }
 
 :root {
-  --font-logo: "Fredoka", "Fredoka One", "Baloo 2", system-ui, sans-serif;
-  --font-ui: "Montserrat", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --player-color: #e03b3b; /* updated to the chosen base color at runtime */
+  --font-title: "IM Fell English", Georgia, serif;
+  --font-ui: "Alegreya Sans", "Segoe UI", system-ui, sans-serif;
 
-  /* Oceanbound glassmorphism palette */
-  --glass-bg: rgba(14, 26, 44, 0.5);
-  --glass-bg-strong: rgba(16, 30, 52, 0.72);
-  --glass-border: rgba(255, 255, 255, 0.15);
-  --glass-highlight: rgba(255, 255, 255, 0.08);
-  --glass-text: #eaf1fa;
-  --glass-dim: #9fb2cb;
-  --accent: #58b6ff;
-  --gold: #ffd166;
+  --player-color: #c8553d; /* updated to the chosen flag at runtime */
+  --ink: #2b3a42;
+  --ink-soft: #5b6c73;
+  --paper: #f3ebd9;
+  --paper-deep: #e4d8be;
+  --table-top: #cfc2a5;
+  --danger: #b23a2e;
+  --gold: #a9760f;
 }
 
 html,
@@ -25,14 +23,17 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #081321;
+  background: var(--table-top);
+  color: var(--ink);
   font-family: var(--font-ui);
 }
 
 button,
 input,
+select,
 label {
   font-family: inherit;
+  color: inherit;
 }
 
 #canvas {
@@ -41,335 +42,509 @@ label {
   height: 100%;
 }
 
-/* Shared frosted-glass surface: translucent bluish panel, thin shiny 1px
-   border, softened corners and a soft drop shadow. */
-.glass,
+/* A printed plate from the chart's legend: paper, with a double ink rule. */
 #power-box,
+#island-hp,
+#fleet,
+#guide,
 #leaderboard,
 #achievements,
 #achievements-hint,
-#wall-button,
-#turret-button,
-#generator-button,
-#house-button,
-#sniper-button,
-#armory-button,
-#tent-button,
-#swap-button,
-#delete-button {
-  background: var(--glass-bg);
-  backdrop-filter: blur(8px) saturate(140%);
-  -webkit-backdrop-filter: blur(8px) saturate(140%);
-  border: 1px solid var(--glass-border);
-  border-radius: 18px;
-  box-shadow: 0 10px 30px rgba(2, 8, 18, 0.45), inset 0 1px 0 var(--glass-highlight);
+#menu-card {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
 }
 
-/* ---------- Tool buttons (lower-left) ---------- */
-#wall-button,
-#turret-button,
-#generator-button,
-#house-button,
-#sniper-button,
-#armory-button,
-#tent-button,
-#swap-button,
-#delete-button {
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ---------- Toolbar (bottom center) ---------- */
+#toolbar {
+  --tool-gap: 6px;
+  --tool-size: clamp(40px, calc((100vw - 110px) / 9), 66px);
   position: fixed;
-  left: 20px;
-  width: 60px;
-  height: 60px;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--tool-gap);
+}
+
+.tool-divider {
+  width: 1.5px;
+  margin: 8px 4px;
+  background: var(--ink);
+}
+
+.tool-button {
+  position: relative;
+  flex: none;
+  width: var(--tool-size);
+  height: var(--tool-size);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 3px;
   cursor: pointer;
-  /* hyper-rounded "squircle" so the buttons read as glass tokens, not boxes */
-  border-radius: 22px;
-  /* soft neon ring that intensifies on hover */
-  box-shadow:
-    0 10px 30px rgba(2, 8, 18, 0.45),
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 1px rgba(255, 255, 255, 0);
-  transition:
-    background 0.25s ease-in-out,
-    border-color 0.25s ease-in-out,
-    box-shadow 0.25s ease-in-out,
-    transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2),
-    filter 0.25s ease-in-out;
+  transition: transform 0.1s ease-out;
 }
 
-#wall-button {
-  bottom: 20px;
+.tool-button:hover {
+  background: #fbf5e7;
+  transform: translateY(-3px);
 }
 
-#turret-button {
-  bottom: 92px; /* stacked above the wall button */
+.tool-button:active {
+  transform: translateY(0);
 }
 
-#generator-button {
-  bottom: 164px; /* stacked above the turret button */
-}
-
-#house-button {
-  bottom: 236px; /* stacked above the generator button */
-}
-
-#sniper-button {
-  bottom: 308px; /* stacked above the house button */
-}
-
-#armory-button {
-  bottom: 380px; /* stacked above the sniper button */
-}
-
-#tent-button {
-  bottom: 452px; /* stacked above the armory button */
-}
-
-#swap-button {
-  bottom: 524px; /* stacked above the tent button */
-}
-
-#delete-button {
-  bottom: 596px; /* stacked above the swap button */
-}
-
-#wall-button:hover,
-#turret-button:hover,
-#generator-button:hover,
-#house-button:hover,
-#sniper-button:hover,
-#armory-button:hover,
-#tent-button:hover,
-#swap-button:hover,
-#delete-button:hover {
-  background: var(--glass-bg-strong);
-  border-color: color-mix(in srgb, var(--player-color) 55%, rgba(255, 255, 255, 0.32));
-  /* zoom + a neon edge glow that grows smoothly out of the border */
-  transform: scale(1.08);
-  filter: brightness(1.12);
-  box-shadow:
-    0 16px 36px rgba(2, 8, 18, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 0 22px color-mix(in srgb, var(--player-color) 60%, transparent);
-}
-
-#wall-button:active,
-#turret-button:active,
-#generator-button:active,
-#house-button:active,
-#sniper-button:active,
-#armory-button:active,
-#tent-button:active,
-#swap-button:active,
-#delete-button:active {
-  transform: scale(0.96);
-}
-
-/* Selected state (tool active): neon player-color border, inner glow and a
-   subtle scale so the active skill pops from the stack */
-#wall-button.selected,
-#turret-button.selected,
-#generator-button.selected,
-#house-button.selected,
-#sniper-button.selected,
-#armory-button.selected,
-#tent-button.selected,
-#swap-button.selected,
-#delete-button.selected {
-  background: var(--glass-bg-strong);
+.tool-button.selected {
+  background: var(--paper-deep);
   border-color: var(--player-color);
-  box-shadow:
-    inset 0 0 0 1px var(--player-color),
-    0 0 24px color-mix(in srgb, var(--player-color) 65%, transparent),
-    0 0 10px color-mix(in srgb, var(--player-color) 45%, transparent);
-  transform: scale(1.08);
+  box-shadow: inset 0 0 0 2px var(--player-color);
+  transform: translateY(-5px);
 }
 
-#wall-button:focus-visible,
-#turret-button:focus-visible,
-#generator-button:focus-visible,
-#house-button:focus-visible,
-#sniper-button:focus-visible,
-#armory-button:focus-visible,
-#tent-button:focus-visible,
-#swap-button:focus-visible,
-#delete-button:focus-visible {
-  outline: 3px solid var(--player-color);
-  outline-offset: 2px;
-}
-
-/* ---------- Sidebar vector icons (SVG, neon gradient) ---------- */
-/* Hidden sprite holder for the shared gradients */
-.icon-defs {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-/* Gradient stops follow the live base color so the icons recolour with it */
-#toolGrad .grad-a {
-  stop-color: color-mix(in srgb, var(--player-color) 55%, #ffffff);
-}
-
-#toolGrad .grad-b {
-  stop-color: color-mix(in srgb, var(--player-color) 82%, #0b1524);
-}
-
-/* The inline SVG inside each button */
 .tool-icon {
   display: block;
-  width: 30px;
-  height: 30px;
+  width: 62%;
+  height: 62%;
   pointer-events: none;
-  /* neon bloom that matches the player color */
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--player-color) 55%, transparent));
-  transition: filter 0.25s ease-in-out, transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
-#wall-button:hover .tool-icon,
-#turret-button:hover .tool-icon,
-#generator-button:hover .tool-icon,
-#house-button:hover .tool-icon,
-#sniper-button:hover .tool-icon,
-#armory-button:hover .tool-icon,
-#tent-button:hover .tool-icon,
-#swap-button:hover .tool-icon,
-#delete-button:hover .tool-icon {
-  transform: scale(1.06);
-  filter: drop-shadow(0 0 9px color-mix(in srgb, var(--player-color) 75%, transparent));
+.tool-glyph {
+  width: 50%;
+  height: 50%;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-/* ---------- Power readout (top-left glass pill with bolt icon) ---------- */
-#power-box {
+.tool-key {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+
+.tool-cost {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-button.unavailable .tool-icon {
+  opacity: 0.4;
+}
+
+.tool-button.unavailable .tool-cost {
+  color: var(--danger);
+}
+
+/* Narrow window: the corner labels would crowd a small button */
+@media (max-width: 620px) {
+  .tool-key {
+    display: none;
+  }
+}
+
+/* Tooltip above each button */
+.tool-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  width: 210px;
+  transform: translateX(-50%);
+  padding: 8px 10px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.25;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.tool-button:hover .tool-tip,
+.tool-button:focus-visible .tool-tip {
+  visibility: visible;
+}
+
+.tool-name {
+  display: block;
+  font-family: var(--font-title);
+  font-size: 18px;
+}
+
+.tool-desc {
+  display: block;
+  margin-top: 2px;
+}
+
+.tool-stats {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+/* The next step's button, marked by the first-steps list */
+.tool-button.hint {
+  outline: 2px dashed var(--ink);
+  outline-offset: 3px;
+}
+
+/* ---------- Left-hand HUD column ---------- */
+#hud-left {
   position: fixed;
-  top: 20px;
-  left: 20px;
+  top: 18px;
+  left: 18px;
+  bottom: 96px;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  pointer-events: none;
+}
+
+/* ---------- Gold readout (top-left) ---------- */
+#power-box {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 18px 10px 14px;
-  color: #ffffff;
-  line-height: 1.05;
+  padding: 7px 16px 7px 10px;
   user-select: none;
-  pointer-events: none; /* not a button */
+  pointer-events: none;
 }
 
-#power-bolt {
+#power-coin {
   flex: none;
-  width: 26px;
-  height: 26px;
-  fill: var(--gold);
-  filter: drop-shadow(0 0 6px rgba(255, 209, 102, 0.55));
+  width: 30px;
+  height: 30px;
 }
 
 #power-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  line-height: 1;
 }
 
 #power-label {
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: var(--glass-dim);
+  color: var(--ink-soft);
 }
 
 #power-value {
-  font-size: 20px;
+  font-size: 25px;
   font-weight: 800;
-  letter-spacing: 0.5px;
   font-variant-numeric: tabular-nums;
-  color: #ffffff;
-  text-shadow: 0 0 12px rgba(88, 182, 255, 0.35);
 }
 
-/* ---------- Leaderboard (top-right) ---------- */
-#leaderboard {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  width: 208px;
-  padding: 12px 14px;
-  color: var(--glass-text);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  line-height: 1.4;
+#power-rate {
+  margin-left: 6px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Island health (under the gold) ---------- */
+#island-hp {
+  flex: none;
+  width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 14px;
+  font-weight: 800;
   user-select: none;
   pointer-events: none;
 }
 
-#leaderboard-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: #ffffff;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-  padding-bottom: 6px;
+#island-hp-bar {
+  flex: 1;
+  height: 9px;
+  background: var(--paper-deep);
+  border: 1.5px solid var(--ink);
 }
 
-#trophy-icon {
-  width: 15px;
-  height: 15px;
-  fill: var(--gold);
-  filter: drop-shadow(0 0 5px rgba(255, 209, 102, 0.5));
+#island-hp-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #3f7d4e;
+}
+
+#island-hp-fill.low {
+  background: var(--danger);
+}
+
+#island-hp-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Fleet ---------- */
+#fleet {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 14px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* ---------- First steps ---------- */
+#guide {
+  flex: 0 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: none;
+  flex-direction: column;
+  padding: 8px 10px;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.2;
+  user-select: none;
+}
+
+#guide.visible {
+  display: flex;
+  pointer-events: auto;
+}
+
+#guide-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-title);
+  font-size: 19px;
+  border-bottom: 1.5px solid var(--ink);
+  padding-bottom: 3px;
+}
+
+#guide-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#guide-close:hover {
+  background: var(--paper-deep);
+}
+
+#guide-list {
+  min-height: 0;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--ink-soft);
+}
+
+#guide-list .current {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+#guide-list .ticked {
+  text-decoration: line-through;
+}
+
+#guide-keys {
+  flex: none;
+  margin-top: 7px;
+  padding-top: 5px;
+  border-top: 1px solid var(--ink-soft);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 800px), (max-height: 460px) {
+  #guide.visible {
+    display: none;
+  }
+}
+
+/* ---------- On-screen notices (top center) ---------- */
+#toasts {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, 44vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 5px 13px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  animation: toast-in 0.18s ease-out, toast-out 0.4s ease-in 2.8s forwards;
+}
+
+.toast.good {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.toast.bad {
+  border-color: var(--danger);
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The screen edge flashes when your island takes a hit */
+#damage-edge {
+  position: fixed;
+  inset: 0;
+  border: 8px solid var(--danger);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#damage-edge.hit {
+  animation: damage-flash 0.45s ease-out;
+}
+
+@keyframes damage-flash {
+  from {
+    opacity: 0.75;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ---------- Right-hand HUD column ---------- */
+/* Leaderboard on top, achievements below it: the panel takes what height is
+   left, so the two can never overlap. */
+#hud-right {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  bottom: 96px;
+  width: 224px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: none;
+}
+
+#leaderboard {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 55vh;
+  padding: 9px 12px;
+  font-size: 15px;
+  line-height: 1.3;
+  user-select: none;
+}
+
+#leaderboard-title,
+#achievements-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-title);
+  font-size: 21px;
+  line-height: 1.1;
+  border-bottom: 1.5px solid var(--ink);
+  padding-bottom: 4px;
 }
 
 #leaderboard-list {
-  margin-top: 7px;
+  min-height: 0;
+  overflow: hidden;
+  margin-top: 5px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .lb-row {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 4px;
-  border-radius: 8px;
-  color: #dfe9f5;
-  font-weight: 600;
-  letter-spacing: 0.2px;
+  padding: 1px 3px;
+  font-weight: 500;
 }
 
 .lb-row.you {
   font-weight: 800;
-  color: #ffffff;
-  background: rgba(88, 182, 255, 0.12);
+  background: var(--paper-deep);
+}
+
+.lb-row.dead {
+  color: var(--ink-soft);
+  text-decoration: line-through;
 }
 
 .lb-rank {
   flex: none;
   width: 14px;
   text-align: center;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
-  color: var(--glass-dim);
+  color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
 
-.lb-rank.lb-first {
-  color: var(--gold);
-  font-size: 11px;
-}
-
-.lb-dot {
+.lb-flag {
   flex: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.18);
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--ink);
 }
 
 .lb-name {
@@ -380,259 +555,168 @@ label {
 
 .lb-power {
   margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
   font-weight: 800;
+  color: var(--gold);
   font-variant-numeric: tabular-nums;
-  color: #ffffff;
-}
-
-.lb-bolt {
-  width: 10px;
-  height: 10px;
-  fill: var(--gold);
-  opacity: 0.9;
 }
 
 #connection-status {
-  margin-top: 9px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--glass-dim);
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  padding-top: 6px;
+  flex: none;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
 }
 
 #mp-hint {
-  margin-top: 6px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  color: var(--glass-dim);
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
 }
 
-#audio-state {
-  margin-top: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-#audio-state svg {
-  width: 15px;
-  height: 15px;
-  fill: #9fe0b4;
-  stroke: #9fe0b4;
-  stroke-width: 2;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 5px rgba(159, 224, 180, 0.45));
-}
-
-#audio-state svg .wave {
-  fill: none;
-}
-
-/* Muted state: the "waves" speaker is swapped for the crossed-out one */
-#audio-state #speaker-off {
+#alone {
+  flex: none;
   display: none;
-  fill: #e59a9a;
-  stroke: #e59a9a;
-  filter: drop-shadow(0 0 5px rgba(229, 154, 154, 0.4));
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid var(--ink);
+  font-size: 14px;
+  line-height: 1.2;
 }
 
-#audio-state.muted #speaker-on {
-  display: none;
-}
-
-#audio-state.muted #speaker-off {
+#alone.visible {
   display: block;
 }
 
-/* HUD panels ease in once on load instead of popping into place */
-#leaderboard,
-#power-box {
-  animation: hud-pop-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+#invite {
+  margin-top: 6px;
+  padding: 4px 9px;
+  font-size: 14px;
+  font-weight: 800;
+  background: var(--paper-deep);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
-@keyframes hud-pop-in {
-  from {
-    opacity: 0;
-    transform: scale(0.86) translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+#invite:hover {
+  background: #fbf5e7;
 }
 
-.lb-row.dead {
-  opacity: 0.4;
-  text-decoration: line-through;
-}
-
-/* ---------- Achievements (center-right hover carousel) ---------- */
+/* ---------- Achievements ---------- */
 #achievements {
-  position: fixed;
-  top: 50%;
-  right: 20px;
-  transform: translateY(-50%) scale(0.96);
-  width: 210px;
-  height: 400px;
+  flex: 0 1 400px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px;
-  color: var(--glass-text);
-  font-family: var(--font-ui);
+  padding: 9px 10px;
   user-select: none;
   overflow: hidden;
-  opacity: 0;
   visibility: hidden;
-  pointer-events: none;
-  transition: opacity 0.35s ease, transform 0.35s ease, visibility 0.35s ease;
 }
 
-/* Fades in while the cursor rests in the center-right corner */
 #achievements.visible {
-  opacity: 1;
   visibility: visible;
-  transform: translateY(-50%) scale(1);
+  pointer-events: auto;
 }
 
-#achievements-title {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: #ffffff;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-  padding-bottom: 6px;
+#achievements-close {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-#achievements-title::before {
-  content: "";
-  width: 13px;
-  height: 13px;
-  flex: none;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ffd166' d='M12 2.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 8.7l5.9-.8L12 2.5Z'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-  filter: drop-shadow(0 0 5px rgba(255, 209, 102, 0.5));
+#achievements-close:hover {
+  background: var(--paper-deep);
 }
 
 #achievements-viewport {
-  position: relative;
   flex: 1;
-  margin-top: 8px;
-  overflow: hidden;
-  /* rows fade in at the bottom / out at the top as they scroll past */
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+  min-height: 0;
+  margin-top: 6px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-soft) transparent;
 }
 
-/* The track holds the list twice; translating it by -50% loops seamlessly
-   as a bottom-to-top carousel. Paused until the panel is hovered. */
 #achievements-track {
-  will-change: transform;
-  animation: ach-scroll 48s linear infinite;
-  animation-play-state: paused;
-}
-
-#achievements.visible #achievements-track {
-  animation-play-state: running;
-}
-
-.ach-set {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
-/* Persistent tab so the hidden carousel stays discoverable */
 #achievements-hint {
   position: fixed;
   top: 50%;
-  right: 0;
+  right: 3px;
   transform: translateY(-50%);
   writing-mode: vertical-rl;
-  padding: 14px 7px;
-  border-radius: 16px 0 0 16px;
-  border-right: none;
-  color: var(--glass-text);
-  font-family: var(--font-ui);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  text-transform: uppercase;
+  padding: 12px 5px;
+  font-family: var(--font-title);
+  font-size: 17px;
   user-select: none;
-  pointer-events: none;
-  transition: opacity 0.35s ease, transform 0.35s ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+#achievements-hint:hover {
+  background: #fbf5e7;
 }
 
 #achievements.visible ~ #achievements-hint {
-  opacity: 0;
-  transform: translateY(-50%) translateX(10px);
-}
-
-@keyframes ach-scroll {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-50%);
-  }
+  visibility: hidden;
 }
 
 .ach-row {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  color: var(--glass-text);
+  padding: 5px 8px;
+  border: 1px solid var(--ink-soft);
 }
 
 .ach-name {
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: 0.4px;
-  line-height: 1.1;
+  line-height: 1.15;
 }
 
 .ach-desc {
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.15;
-  color: var(--glass-dim);
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--ink-soft);
 }
 
 .ach-row.done {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--player-color) 85%, #ff7a5c), color-mix(in srgb, var(--player-color) 90%, #7a0f1f));
-  border-color: color-mix(in srgb, var(--player-color) 60%, transparent);
-  color: #ffffff;
+  background: var(--player-color);
+  border-color: var(--ink);
+  color: var(--paper);
 }
 
 .ach-row.done .ach-desc {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--paper);
 }
 
 .ach-row.flash {
-  animation: ach-flash 1s ease-out;
+  animation: ach-flash 0.8s ease-out;
 }
 
 @keyframes ach-flash {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.95);
+  from {
+    outline: 3px solid var(--ink);
+    outline-offset: 0;
   }
-  100% {
-    box-shadow: 0 0 0 14px rgba(255, 255, 255, 0);
+  to {
+    outline: 3px solid transparent;
+    outline-offset: 8px;
   }
 }
 
@@ -644,50 +728,67 @@ label {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  background: radial-gradient(900px 600px at 50% 45%, rgba(24, 12, 22, 0.86), rgba(5, 10, 20, 0.94));
-  color: #ffffff;
+  gap: 10px;
+  background: rgba(43, 58, 66, 0.72);
+  color: var(--paper);
   user-select: none;
-  pointer-events: none;
 }
 
 #eliminated.show {
   display: flex;
-  animation: eliminated-in 0.4s ease-out;
-}
-
-@keyframes eliminated-in {
-  from {
-    opacity: 0;
-    transform: scale(0.92);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 
 #eliminated-title {
-  font-family: var(--font-ui);
-  font-size: clamp(38px, 8vw, 60px);
-  font-weight: 900;
-  letter-spacing: 8px;
-  background: linear-gradient(135deg, #ff6a5e, #b3122c);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 22px rgba(255, 90, 82, 0.4));
+  font-family: var(--font-title);
+  font-size: clamp(46px, 9vw, 92px);
+  line-height: 1;
 }
 
 #eliminated-sub {
-  font-size: 15px;
-  font-weight: 600;
-  color: #b9c7db;
+  max-width: min(560px, 90vw);
+  font-size: 19px;
   text-align: center;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 
-/* ---------- Main menu (responsive, gate-keeps the game) ---------- */
+#end-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+#end-actions button {
+  padding: 9px 18px 11px;
+  font-family: var(--font-title);
+  font-size: 23px;
+  line-height: 1;
+  border: 1.5px solid var(--paper);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+#end-again {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+#end-menu {
+  color: var(--paper);
+  background: transparent;
+}
+
+#end-actions button:hover {
+  transform: translateY(-1px);
+}
+
+#end-actions button:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+/* ---------- Main menu ---------- */
 #menu {
   position: fixed;
   inset: 0;
@@ -696,246 +797,176 @@ label {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(28px, 7vh, 52px);
-  background:
-    radial-gradient(1100px 700px at 18% 22%, rgba(88, 182, 255, 0.14), transparent 60%),
-    radial-gradient(900px 650px at 82% 78%, rgba(46, 214, 160, 0.1), transparent 60%),
-    linear-gradient(160deg, #0a1c30 0%, #061020 100%);
-  background-size: 160% 160%;
+  gap: clamp(18px, 4vh, 34px);
   padding: 24px;
+  background: var(--paper-deep);
+  overflow: hidden;
   user-select: none;
-  animation: menu-bg-drift 34s ease-in-out infinite;
-}
-
-@keyframes menu-bg-drift {
-  0% {
-    background-position: 0% 0%, 100% 100%, 0% 0%;
-  }
-  50% {
-    background-position: 100% 0%, 0% 100%, 40% 60%;
-  }
-  100% {
-    background-position: 0% 0%, 100% 100%, 0% 0%;
-  }
 }
 
 #menu.hidden {
   display: none;
 }
 
-#menu-title {
-  font-family: var(--font-logo);
-  font-weight: 700;
-  font-size: clamp(62px, 13vw, 150px);
-  letter-spacing: 4px;
-  line-height: 0.95;
-  background: linear-gradient(180deg, #ffffff 0%, #9fd4ff 55%, #4d9be6 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 10px 26px rgba(3, 10, 22, 0.6));
+#menu-rose {
+  position: absolute;
+  right: -90px;
+  bottom: -110px;
+  width: min(62vh, 520px);
+  height: min(62vh, 520px);
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+#menu-heading {
+  position: relative;
   text-align: center;
 }
 
-#menu-title .io {
-  background: linear-gradient(180deg, #6d84a3, #3a4c66);
-  -webkit-background-clip: text;
-  background-clip: text;
+#menu-title {
+  font-family: var(--font-title);
+  font-weight: 400;
+  font-size: clamp(64px, 12vw, 132px);
+  line-height: 0.95;
 }
 
-/* Grouped card: nickname (+ color) + play button */
+#menu-subtitle {
+  margin-top: 8px;
+  font-size: clamp(17px, 2.4vw, 22px);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
 #menu-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  width: min(400px, 86vw);
-  background: var(--glass-bg);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  padding: 28px 26px 30px;
-  box-shadow: 0 24px 60px rgba(2, 8, 18, 0.6), inset 0 1px 0 var(--glass-highlight);
+  gap: 16px;
+  width: min(380px, 88vw);
+  padding: 20px 22px 22px;
 }
 
 .menu-field {
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
-#menu-name {
-  width: 100%;
-  font-family: var(--font-ui);
-  font-size: clamp(15px, 4vw, 18px);
+.menu-label {
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.5px;
-  padding: 16px 60px 16px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
-  text-align: center;
+  color: var(--ink-soft);
+}
+
+#menu-name,
+#menu-tag {
+  width: 100%;
+  padding: 9px 11px;
+  font-size: 19px;
+  font-weight: 700;
+  background: #fbf5e7;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+#menu-name:focus,
+#menu-tag:focus {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
 }
 
 #menu-name::placeholder {
-  color: #7d90ab;
-  font-weight: 600;
-}
-
-#menu-name:focus {
-  border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.09);
-  box-shadow: 0 0 0 4px rgba(88, 182, 255, 0.18);
-}
-
-/* Achievement tag picker (only earned achievements are listed) */
-.menu-tag-field {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-#menu-tag-label {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: var(--glass-dim);
-  padding-left: 4px;
+  color: var(--ink-soft);
+  font-weight: 500;
 }
 
 #menu-tag {
-  width: 100%;
-  font-family: var(--font-ui);
-  font-size: clamp(14px, 3.6vw, 16px);
-  font-weight: 700;
-  padding: 13px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
-  text-align-last: center;
+  font-size: 17px;
   cursor: pointer;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-#menu-tag:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px rgba(88, 182, 255, 0.18);
 }
 
 #menu-tag:disabled {
-  opacity: 0.55;
+  color: var(--ink-soft);
   cursor: not-allowed;
 }
 
-#menu-tag option {
-  background: #0e1c2e;
-  color: #ffffff;
+#menu-flags {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
 }
 
-/* Round color swatch nested inside the nickname field */
-.menu-swatch {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  background: #ffffff;
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.menu-swatch:hover {
-  transform: translateY(-50%) scale(1.06);
-  box-shadow: 0 6px 18px rgba(2, 8, 18, 0.5);
-}
-
-.menu-swatch input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: none;
-  background: none;
+.flag {
+  aspect-ratio: 1;
+  background: var(--flag);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
   cursor: pointer;
 }
 
-#menu-color::-webkit-color-swatch-wrapper {
-  padding: 0;
+.flag:hover {
+  transform: translateY(-2px);
 }
 
-#menu-color::-webkit-color-swatch {
-  border: none;
-}
-
-#menu-color::-moz-color-swatch {
-  border: none;
+.flag[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 3px var(--paper);
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
 }
 
 #menu-play {
-  font-family: var(--font-ui);
-  font-size: clamp(18px, 4.5vw, 22px);
-  font-weight: 900;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  color: #ffffff;
-  background: linear-gradient(135deg, #ff6a5e, #c81e3a);
+  margin-top: 4px;
+  padding: 11px 16px 13px;
+  font-family: var(--font-title);
+  font-size: 28px;
+  line-height: 1;
+  color: var(--paper);
+  background: var(--ink);
   border: none;
-  border-radius: 18px;
-  padding: 16px 20px 14px;
+  border-radius: 2px;
   cursor: pointer;
-  box-shadow: 0 10px 26px rgba(200, 30, 58, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out, filter 0.15s ease-in-out;
 }
 
 #menu-play:hover {
-  filter: brightness(1.08);
-  transform: translateY(-2px);
-  box-shadow: 0 14px 32px rgba(200, 30, 58, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  background: #1d292f;
 }
 
 #menu-play:active {
-  transform: translateY(2px);
-  box-shadow: 0 4px 12px rgba(200, 30, 58, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(1px);
+}
+
+#menu-play:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+#menu-status {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--danger);
+}
+
+#menu-status:empty {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #leaderboard,
-  #power-box,
-  #eliminated.show,
-  #menu {
-    animation: none;
-  }
-
-  #achievements-track,
-  .ach-row.flash {
+  .tool-button,
+  .ach-row.flash,
+  .toast,
+  #damage-edge.hit {
+    transition: none;
     animation: none;
   }
 }
 
 @media (max-width: 520px) {
-  #menu {
-    gap: 28px;
+  #hud-right {
+    width: 180px;
   }
 
-  #menu-title {
-    letter-spacing: 1px;
-  }
-
-  #menu-card {
-    width: min(340px, 92vw);
-    padding: 22px 18px 24px;
-  }
-
-  #leaderboard {
-    width: 176px;
+  #menu-rose {
+    display: none;
   }
 }
