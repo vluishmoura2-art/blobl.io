@@ -40,7 +40,6 @@ const BUILDINGS = [
 /* ---------- GOLD ---------- */
 const POWER = {
   start: COMBAT.startGold,
-  perGenerator: COMBAT.goldPerMill,
 };
 
 const state = {
@@ -237,12 +236,21 @@ function limitReached(building) {
   return n >= building.limit;
 }
 
+/* The building the selected tool would upgrade at a point: a dock with the dock
+   tool, the arsenal with its tool, or any upgradable building with its own. */
+function upgradeTarget(world) {
+  const hit = buildingAt(world.x, world.y);
+  if (!hit || hit.building !== BUILDINGS[placement.active]) return null;
+  return hit.building.design === "tent" || hit.building.design === "armory" || canUpgrade(hit) ? hit : null;
+}
+
 /* The ghost the player is currently aiming (or null). The aim point is eased
    each frame (see updateFx), so the preview trails the cursor elastically. */
 function currentGhost(w, h) {
   if (placement.active === null || placement.mouseX === null) return null;
 
   const building = BUILDINGS[placement.active];
+  if (upgradeTarget(screenToWorld(placement.mouseX, placement.mouseY, w, h))) return null;
   const world =
     FX.aim && FX.aim.x != null ? FX.aim : screenToWorld(placement.mouseX, placement.mouseY, w, h);
   const pos = resolvePlacement(building, world.x, world.y);
@@ -287,6 +295,9 @@ function placeBuilding(screenX, screenY, w, h) {
     hp: building.health,
     born: FX.t, // spawn timer drives the squash-and-stretch pop
     tier: building.design === "tent" ? 1 : undefined, // tent upgrade tier (1..4)
+    level: 1, // upgrade level (1..4), see upgrades.js
+    path: null, // "A" or "B" once upgraded
+    invested: building.cost, // everything paid for it, for the refund
   });
   state.power -= building.cost;
   state.lastSpendAt = performance.now();
@@ -326,6 +337,7 @@ function upgradeTent(p) {
     return;
   }
   p.tier += 1;
+  p.invested = (p.invested || p.building.cost) + next.cost;
   showToast(next.name + " pronto: produz " + BOAT_NAMES[next.unit], "good");
   state.power -= next.cost;
   state.lastSpendAt = performance.now();
@@ -386,9 +398,16 @@ function refreshPowerUI() {
   }
 }
 
+/* Gold per second from every windmill, at its level. */
+function goldIncome() {
+  let total = 0;
+  for (const p of placement.placed) total += pieceStats(p).gold || 0;
+  return total;
+}
+
 /* What the player needs to read at a glance: income and fleet limits. */
 function refreshHud() {
-  const rate = "+" + countGenerators() * POWER.perGenerator + "/s";
+  const rate = "+" + goldIncome().toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "/s";
   const rateEl = document.getElementById("power-rate");
   if (rateEl.textContent !== rate) rateEl.textContent = rate;
 
@@ -401,12 +420,12 @@ function refreshHud() {
   if (fleetEl.textContent !== fleet) fleetEl.textContent = fleet;
 }
 
-/* Each generator adds POWER.perGenerator power per second */
+/* Windmills add gold every second (more when upgraded on the gold path) */
 function updatePower(dt) {
-  const gens = countGenerators();
-  if (gens === 0) return;
+  const income = goldIncome();
+  if (income === 0) return;
 
-  state.power += gens * POWER.perGenerator * dt;
+  state.power += income * dt;
   refreshPowerUI();
 }
 
@@ -502,7 +521,8 @@ function updateSoldiers(dt) {
       } else {
         const kind = s.kind || "soldier";
         const base = UNIT_STATS[kind].speed;
-        const speed = kind !== "soldier" && hasUpgrade("booster") ? base * COMBAT.boosterMult : base;
+        const boosted = kind !== "soldier" && hasUpgrade("booster") ? base * COMBAT.boosterMult : base;
+        const speed = s.slowUntil > performance.now() ? boosted * COMBAT.slowFactor : boosted;
 
         s.dir = Math.atan2(dy, dx);
         const step = Math.min(speed * dt, d);
@@ -942,6 +962,20 @@ function draw(time = performance.now()) {
 /* The limit of where you can build, printed like a chart boundary. It darkens
    while a building tool is selected. */
 function drawRangeIndicators() {
+  // repair workshops show their reach to their owner
+  ctx.save();
+  ctx.setLineDash([4, 6]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = colorWithAlpha(HEAL, 0.6);
+  for (const p of placement.placed) {
+    const stats = pieceStats(p);
+    if (!stats.repairRange || pieceLevel(p) < 3) continue;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, stats.repairRange, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
   ctx.save();
   ctx.setLineDash([12, 9]);
   ctx.lineWidth = placement.active === null ? 1.5 : 2.5;
@@ -1026,6 +1060,7 @@ function drawBase() {
   drawTide(PLAYER.x, PLAYER.y, seed);
   paintIsland(ctx, PLAYER.x, PLAYER.y, r, STYLE.fill, seed);
   drawHitFlash(pieceKey(seed, "island"), PLAYER.x, PLAYER.y, r);
+  drawHealMark(pieceKey(seed, "island"), PLAYER.x, PLAYER.y, r);
   drawObjectHp(PLAYER.x, PLAYER.y - r - 14, r * 1.8, state.playerHp, COMBAT.player.health);
   drawBaseLabel(PLAYER.x, PLAYER.y, PROFILE.name, PROFILE.tag);
 }
@@ -1055,11 +1090,14 @@ function drawPlacedBuilding(p) {
   const pop = 1 + 0.28 * Math.sin(st * Math.PI) * (1 - st * 0.72);
 
   const key = pieceKey(net.id, p.uid);
-  paintBuilding(ctx, p.building, p.x, p.y, p.building.size * pop, STYLE.fill, aimOf(key, buildingDir(p)), p.tier, FX.t);
+  const radial = buildingDir(p);
+  paintBuilding(ctx, p.building, p.x, p.y, p.building.size * pop, STYLE.fill, aimOf(key, radial), p.tier, FX.t, p.level, p.path);
+  paintLevelPips(ctx, p.x, p.y, p.building.size, radial, p.level, p.path);
   drawHitFlash(key, p.x, p.y, p.building.size);
+  drawHealMark(key, p.x, p.y, p.building.size);
 
   if (p.building.health && p.hp !== undefined) {
-    drawObjectHp(p.x, p.y - p.building.size - 10, Math.max(28, p.building.size * 1.4), p.hp, p.building.health);
+    drawObjectHp(p.x, p.y - p.building.size - 10, Math.max(28, p.building.size * 1.4), p.hp, pieceStats(p).health);
   }
 }
 
@@ -1098,31 +1136,35 @@ function drawGhost(ghost) {
   ctx.restore();
 }
 
-/* With the Dock or Arsenal tool selected, hovering that building shows the next
-   upgrade and its price. */
+/* With a building's own tool selected, hovering one of those buildings shows its
+   next upgrade and the price. */
 function drawUpgradeHint(w, h) {
-  if (placement.mouseX === null) return;
-  if (placement.active !== 5 && placement.active !== 6) return;
+  if (placement.mouseX === null || placement.active === null) return;
 
-  const world = screenToWorld(placement.mouseX, placement.mouseY, w, h);
-  const hit = buildingAt(world.x, world.y);
+  const hit = upgradeTarget(screenToWorld(placement.mouseX, placement.mouseY, w, h));
   if (!hit) return;
 
-  let next;
-  let doneLabel;
-  if (placement.active === 6 && hit.building.design === "tent") {
-    next = TENT_TIERS[(hit.tier || 1) + 1];
-    doneLabel = "Nível máximo";
-  } else if (placement.active === 5 && hit.building.design === "armory") {
-    next = COMBAT.armoryResearch.find((r) => !hasUpgrade(r.key));
-    doneLabel = "Tudo pesquisado";
+  let label;
+  let cost = null;
+  if (hit.building.design === "tent") {
+    const next = TENT_TIERS[(hit.tier || 1) + 1];
+    label = next ? next.name : "Nível máximo";
+    cost = next ? next.cost : null;
+  } else if (hit.building.design === "armory") {
+    const next = COMBAT.armoryResearch.find((r) => !hasUpgrade(r.key));
+    label = next ? next.name : "Tudo pesquisado";
+    cost = next ? next.cost : null;
+  } else if (pieceLevel(hit) === 1) {
+    label = "Clique para escolher a evolução";
   } else {
-    return;
+    const next = nextLevelOf(hit, hit.path);
+    label = next ? hit.building.paths[hit.path].name + ", nível " + (pieceLevel(hit) + 1) : "Nível máximo";
+    cost = next ? next.cost : null;
   }
 
   const y = hit.y - hit.building.size - 18;
-  if (!next) drawPlate(hit.x, y, doneLabel);
-  else drawPlate(hit.x, y, next.name + " · " + next.cost + " de ouro", canAffordCost(next.cost) ? INK : "#B23A2E");
+  if (cost === null) drawPlate(hit.x, y, label);
+  else drawPlate(hit.x, y, label + " · " + cost + " de ouro", canAffordCost(cost) ? INK : "#B23A2E");
 }
 
 /* ---------- LOOP ---------- */
@@ -1138,6 +1180,7 @@ function loop(time) {
   updateBattle(dt);
   if (typeof netUpdate === "function") netUpdate(dt);
   refreshHud();
+  placeUpgradeChoice();
   draw(time);
 
   requestAnimationFrame(loop);
@@ -1162,6 +1205,7 @@ const MODE_BUTTONS = [
 ];
 
 function toggleActionMode(mode) {
+  closeUpgradeChoice();
   if (actionMode === mode) {
     actionMode = null;
   } else {
@@ -1196,6 +1240,7 @@ function updateToolButtons() {
 }
 
 function selectBuilding(index) {
+  closeUpgradeChoice();
   actionMode = null; // picking a building turns off swap/delete
   drag.active = false;
   drag.building = null;
@@ -1206,6 +1251,7 @@ function selectBuilding(index) {
 }
 
 function deselectBuilding() {
+  closeUpgradeChoice();
   placement.active = null;
   actionMode = null;
   drag.active = false;
@@ -1219,6 +1265,7 @@ function deselectBuilding() {
 window.addEventListener("keydown", (e) => {
   // the menu's fields and browser shortcuts (Ctrl+S, ...) keep their keys
   if (!gameStarted || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (handleChoiceKey(e)) return; // the upgrade panel answers 1, 2 and Esc first
 
   const key = e.key.toLowerCase();
 
@@ -1353,25 +1400,21 @@ canvas.addEventListener("click", (e) => {
   const sy = e.clientY - rect.top;
 
   if (isEliminated()) return; // base destroyed: no more orders
+  if (closeUpgradeChoice()) return; // a click outside the panel just closes it
 
   if (placement.active !== null) {
-    // Tent tool re-clicks an existing tent to upgrade it; the Armory tool
-    // re-clicks the armory to buy the next research.
-    const world = screenToWorld(sx, sy, w, h);
-    const hovered = buildingAt(world.x, world.y);
-    if (hovered && placement.active === 6 && hovered.building.design === "tent") {
-      upgradeTent(hovered);
-    } else if (hovered && placement.active === 5 && hovered.building.design === "armory") {
-      researchArmory(hovered);
-    } else {
-      placeBuilding(sx, sy, w, h);
-    }
+    // A building's own tool, clicked on one of those buildings, upgrades it.
+    const target = upgradeTarget(screenToWorld(sx, sy, w, h));
+    if (target && target.building.design === "tent") upgradeTent(target);
+    else if (target && target.building.design === "armory") researchArmory(target);
+    else if (target) upgradePiece(target);
+    else placeBuilding(sx, sy, w, h);
   } else if (actionMode === "delete") {
     const world = screenToWorld(sx, sy, w, h);
     const hit = buildingAt(world.x, world.y);
     if (hit) {
       placement.placed = placement.placed.filter((p) => p !== hit);
-      state.power += Math.floor(hit.building.cost * COMBAT.refundRate);
+      state.power += Math.floor((hit.invested || hit.building.cost) * COMBAT.refundRate);
       state.lastSpendAt = performance.now();
       refreshPowerUI();
       burst(hit.x, hit.y, INK, 10, 90);
@@ -1416,7 +1459,9 @@ function initToolButtons() {
     if (building.limit) stats.push("máximo " + building.limit);
     button.querySelector(".tool-cost").textContent = building.cost;
     button.querySelector(".tool-name").textContent = building.name;
-    button.querySelector(".tool-desc").textContent = building.desc;
+    const paths = building.paths;
+    button.querySelector(".tool-desc").textContent =
+      building.desc + (paths ? " Evolui como " + paths.A.name + " ou " + paths.B.name + "." : "");
     button.querySelector(".tool-stats").textContent = stats.join(" · ");
     button.setAttribute("aria-label", building.name + ", " + stats.join(", "));
     button.addEventListener("click", () => selectBuilding(tool.building));
@@ -1459,6 +1504,7 @@ function resetMatch() {
   state.orderedFleet = false;
   state.lastSpendAt = -Infinity;
 
+  closeUpgradeChoice();
   placement.placed = [];
   placement.active = null;
   soldiers.length = 0;

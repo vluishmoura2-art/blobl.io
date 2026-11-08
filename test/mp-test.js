@@ -195,6 +195,32 @@ const dockDistance = COMBAT.place.buildRange + COMBAT.buildingStats[DOCK].size;
   assert(aIdent.color === "#112233", "the chosen flag should reach everyone");
   console.log("  identity OK: name + flag reach the leaderboard");
 
+  // 8b. upgrades: levels are charged one by one, and the path never changes
+  const cannon = { b: GUN, uid: 104, ...polar(pa, towardB - 2.0, 190) };
+  const mill = { b: MILL, uid: 105, ...polar(pa, towardB - 1.0, 190) };
+  A.state.buildings = [...A.state.buildings, cannon, mill];
+  const beforeUpgrades = await waitForPlayer(B, wa.id, (p) => p.buildings.some((b) => b.uid === 105), "cannon and mill built");
+  cannon.lv = 3;
+  cannon.p = "A";
+  mill.lv = 4;
+  mill.p = "B";
+  const upgraded = await waitForPlayer(
+    B,
+    wa.id,
+    (p) => p.buildings.some((b) => b.uid === 104 && b.lv === 3) && p.buildings.some((b) => b.uid === 105 && b.lv === 4),
+    "upgrades applied"
+  );
+  const gunPath = COMBAT.buildingStats[GUN].paths.A.levels;
+  const millPath = COMBAT.buildingStats[MILL].paths.B.levels;
+  const upgradeCost = gunPath[0].cost + gunPath[1].cost + millPath.reduce((sum, l) => sum + l.cost, 0);
+  assert(upgraded.power <= beforeUpgrades.power - upgradeCost + 5, "every level must be charged");
+  assert(upgraded.buildings.find((b) => b.uid === 105).p === "B", "the mill should be on path B");
+  cannon.lv = 4;
+  cannon.p = "B";
+  const switched = await waitForPlayer(B, wa.id, (p) => p.buildings.some((b) => b.uid === 104 && b.lv === 4), "cannon level 4");
+  assert(switched.buildings.find((b) => b.uid === 104).p === "A", "a chosen path can't be changed");
+  console.log("  upgrades OK: levels are charged in order and the path is final");
+
   // 9. cheats, from a player with the normal starting gold
   CONFIG.startPower = COMBAT.startGold;
   const C = await connect();
@@ -242,6 +268,20 @@ const dockDistance = COMBAT.place.buildRange + COMBAT.buildingStats[DOCK].size;
   assert(cNow.buildings.some((b) => b.uid === 405), "a legal reef should be built");
   assert(!cNow.buildings.some((b) => b.uid === 406), "an overlapping reef must be refused");
   C.state.buildings = C.state.buildings.filter((b) => b.uid !== 404 && b.uid !== 406);
+
+  // an upgrade beyond the player's gold, or on a path that doesn't exist, is refused
+  const cheapGun = { b: GUN, uid: 407, ...polar(pc, 1.2, 190) };
+  C.state.buildings = [...C.state.buildings, cheapGun];
+  await waitForPlayer(C, wc.id, (p) => p.buildings.some((b) => b.uid === 407), "C's cannon");
+  cheapGun.lv = 2;
+  cheapGun.p = "Z";
+  await sleep(300);
+  cheapGun.lv = 4;
+  cheapGun.p = "A";
+  await sleep(300);
+  C.clearQueue();
+  cNow = (await withTimeout(C.next("update"), 3000, "C update")).players.find((p) => p.id === wc.id);
+  assert(!cNow.buildings.find((b) => b.uid === 407).lv, "an unaffordable upgrade must be refused");
 
   // a boat from nowhere is refused; one launched at the dock can't teleport
   C.state.soldiers = [{ uid: 501, x: pb.x, y: pb.y, dir: 0, kind: "siege" }];

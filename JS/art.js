@@ -13,6 +13,9 @@ const INK = "#2B3A42";
 const PAPER = "#F3EBD9";
 const SEA_LINE = "#A9C0C6";
 const SEA_INK = "#5F8088";
+const HEAL = "#3F7D4E"; // repairs
+const SLOW = "#1F7A7A"; // slowed boats
+const SPLASH = "#E8A33A"; // grapeshot impact
 
 /* ---------- COLOR HELPERS ---------- */
 function shiftHex(hex, amt) {
@@ -170,23 +173,96 @@ function paintReef(g, x, y, s, color, dir) {
   g.restore();
 }
 
-/* Cannon: a round gun deck with a short, wide barrel. */
-function paintCannon(g, x, y, s, color, dir) {
-  g.beginPath();
-  g.arc(x, y, s * 0.92, 0, Math.PI * 2);
-  inkFill(g, PAPER, 2.5);
+/* Cannon: a round gun deck with a short, wide barrel. Path A (fast battery)
+   gets a band, then an ammo crate, then twin barrels; path B (grapeshot) gets a
+   flared muzzle, then shot on the deck, then a wide bell with rivets. */
+function paintCannon(g, x, y, s, color, dir, level, path) {
+  const lv = level || 1;
+  const fast = path === "A";
+  const grape = path === "B";
 
   g.save();
   g.translate(x, y);
   g.rotate(dir);
+
+  if (fast && lv >= 3) {
+    g.beginPath();
+    g.rect(-s * 1.12, -s * 0.26, s * 0.42, s * 0.52);
+    inkFill(g, PAPER, 2);
+    g.beginPath();
+    g.moveTo(-s * 1.12, -s * 0.26);
+    g.lineTo(-s * 0.7, s * 0.26);
+    g.moveTo(-s * 0.7, -s * 0.26);
+    g.lineTo(-s * 1.12, s * 0.26);
+    g.lineWidth = 1.5;
+    g.stroke();
+  }
+
+  g.beginPath();
+  g.arc(0, 0, s * 0.92, 0, Math.PI * 2);
+  inkFill(g, PAPER, 2.5);
+
   g.fillStyle = INK;
-  g.fillRect(0, -s * 0.2, s * 1.12, s * 0.4);
-  g.fillRect(s * 0.94, -s * 0.28, s * 0.22, s * 0.56);
+  if (grape && lv >= 4) {
+    g.beginPath();
+    g.moveTo(s * 0.15, -s * 0.22);
+    g.lineTo(s * 1.08, -s * 0.46);
+    g.lineTo(s * 1.08, s * 0.46);
+    g.lineTo(s * 0.15, s * 0.22);
+    g.closePath();
+    g.fill();
+  } else {
+    const length = fast && lv >= 3 ? s * 1.24 : s * 1.12;
+    const barrels = fast && lv >= 4 ? [-0.24, 0.24] : [0];
+    const width = barrels.length > 1 ? s * 0.28 : s * 0.4;
+    for (const offset of barrels) {
+      const cy = offset * s;
+      g.fillRect(0, cy - width / 2, length, width);
+      if (fast) {
+        g.fillStyle = PAPER;
+        g.fillRect(length * 0.58, cy - width / 2, s * 0.1, width);
+        g.fillStyle = INK;
+      }
+      if (grape) {
+        g.beginPath();
+        g.moveTo(length * 0.72, cy - width / 2);
+        g.lineTo(length + s * 0.04, cy - width * 0.95);
+        g.lineTo(length + s * 0.04, cy + width * 0.95);
+        g.lineTo(length * 0.72, cy + width / 2);
+        g.closePath();
+        g.fill();
+      } else {
+        g.fillRect(length - s * 0.18, cy - width * 0.7, s * 0.22, width * 1.4);
+      }
+    }
+  }
+
+  if (grape && lv >= 4) {
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 2 + (i * Math.PI) / 2 + Math.PI / 4;
+      g.beginPath();
+      g.arc(Math.cos(a) * s * 0.76, Math.sin(a) * s * 0.76, Math.max(1.5, s * 0.07), 0, Math.PI * 2);
+      g.fill();
+    }
+  }
   g.restore();
 
   g.beginPath();
   g.arc(x, y, s * 0.54, 0, Math.PI * 2);
   inkFill(g, color, 2.5);
+
+  if (grape && lv >= 3) {
+    g.fillStyle = PAPER;
+    for (const [dx, dy] of [
+      [-0.18, -0.14],
+      [0.16, -0.06],
+      [-0.04, 0.2],
+    ]) {
+      g.beginPath();
+      g.arc(x + dx * s, y + dy * s, Math.max(2, s * 0.09), 0, Math.PI * 2);
+      g.fill();
+    }
+  }
 }
 
 /* Long gun: a square gun deck with a long, thin barrel. */
@@ -210,32 +286,69 @@ function paintLongGun(g, x, y, s, color, dir) {
   g.restore();
 }
 
-/* Windmill: the sails keep turning while it makes gold. */
-function paintWindmill(g, x, y, s, color, turn) {
+/* A gear outline, used for the repair workshop's hub. */
+function traceGear(g, x, y, r, teeth) {
+  g.beginPath();
+  for (let i = 0; i < teeth * 2; i++) {
+    const a0 = (i / (teeth * 2)) * Math.PI * 2;
+    const a1 = ((i + 1) / (teeth * 2)) * Math.PI * 2;
+    const radius = i % 2 === 0 ? r : r * 0.78;
+    g.lineTo(x + Math.cos(a0) * radius, y + Math.sin(a0) * radius);
+    g.lineTo(x + Math.cos(a1) * radius, y + Math.sin(a1) * radius);
+  }
+  g.closePath();
+}
+
+/* Windmill: the sails keep turning while it makes gold. Path A (gold works)
+   adds sails and spins faster; path B (repair workshop) gets a gear hub and, at
+   the top level, green crosses on its sails. */
+function paintWindmill(g, x, y, s, color, turn, level, path) {
+  const lv = level || 1;
+  const gold = path === "A";
+  const repair = path === "B";
+  const sails = gold ? (lv >= 4 ? 8 : 6) : 4;
+  const spin = gold ? 1 + 0.25 * (lv - 1) : 1;
+
   g.beginPath();
   g.arc(x, y, s * 0.62, 0, Math.PI * 2);
   inkFill(g, PAPER, 2.5);
 
   g.save();
   g.translate(x, y);
-  g.rotate(turn);
-  for (let i = 0; i < 4; i++) {
-    g.rotate(Math.PI / 2);
+  g.rotate(turn * spin);
+  for (let i = 0; i < sails; i++) {
+    g.rotate((Math.PI * 2) / sails);
     g.beginPath();
     g.rect(s * 0.16, -s * 0.03, s * 0.84, s * 0.26);
-    inkFill(g, PAPER, 2);
+    inkFill(g, gold && lv >= 4 && i % 2 === 0 ? color : PAPER, 2);
     g.beginPath();
     g.moveTo(0, 0);
     g.lineTo(s * 1, 0);
     g.lineWidth = 2.5;
     g.strokeStyle = INK;
     g.stroke();
+
+    if (repair && lv >= 4) {
+      g.strokeStyle = HEAL;
+      g.lineWidth = Math.max(2, s * 0.08);
+      g.beginPath();
+      g.moveTo(s * 0.86, s * 0.1 - s * 0.12);
+      g.lineTo(s * 0.86, s * 0.1 + s * 0.12);
+      g.moveTo(s * 0.74, s * 0.1);
+      g.lineTo(s * 0.98, s * 0.1);
+      g.stroke();
+    }
   }
   g.restore();
 
-  g.beginPath();
-  g.arc(x, y, s * 0.3, 0, Math.PI * 2);
-  inkFill(g, color, 2.5);
+  if (repair && lv >= 2) {
+    traceGear(g, x, y, s * (lv >= 4 ? 0.42 : 0.36), 8);
+    inkFill(g, color, 2);
+  } else {
+    g.beginPath();
+    g.arc(x, y, s * 0.3, 0, Math.PI * 2);
+    inkFill(g, color, 2.5);
+  }
 }
 
 /* Hut: always upright, like a symbol printed on the chart. */
@@ -322,16 +435,16 @@ function paintDock(g, x, y, s, color, dir, tier) {
 
 /* Draws any building from its definition. The toolbar, the placement preview
    and every player's pieces all come through here. */
-function paintBuilding(g, building, x, y, s, color, dir, tier, time) {
+function paintBuilding(g, building, x, y, s, color, dir, tier, time, level, path) {
   switch (building.design) {
     case "turret":
-      paintCannon(g, x, y, s, color, dir);
+      paintCannon(g, x, y, s, color, dir, level, path);
       break;
     case "sniper":
       paintLongGun(g, x, y, s, color, dir);
       break;
     case "generator":
-      paintWindmill(g, x, y, s, color, (time || 0) * 0.7);
+      paintWindmill(g, x, y, s, color, (time || 0) * 0.7, level, path);
       break;
     case "house":
       paintHut(g, x, y, s, color);
@@ -344,6 +457,37 @@ function paintBuilding(g, building, x, y, s, color, dir, tier, time) {
       break;
     default:
       paintReef(g, x, y, s, color, dir);
+  }
+}
+
+/* Level marks on the island side of a building: one per level above the first.
+   Path A uses round marks and path B diamonds, so the path reads without color. */
+function paintLevelPips(g, x, y, s, radialDir, level, path) {
+  const marks = (level || 1) - 1;
+  if (marks <= 0) return;
+
+  const inward = radialDir + Math.PI;
+  const cx = x + Math.cos(inward) * (s + 9);
+  const cy = y + Math.sin(inward) * (s + 9);
+  const side = inward + Math.PI / 2;
+
+  for (let i = 0; i < marks; i++) {
+    const offset = (i - (marks - 1) / 2) * 10;
+    const px = cx + Math.cos(side) * offset;
+    const py = cy + Math.sin(side) * offset;
+    g.beginPath();
+    if (path === "B") {
+      g.moveTo(px, py - 4.5);
+      g.lineTo(px + 4.5, py);
+      g.lineTo(px, py + 4.5);
+      g.lineTo(px - 4.5, py);
+      g.closePath();
+      g.fillStyle = INK;
+      g.fill();
+    } else {
+      g.arc(px, py, 3.5, 0, Math.PI * 2);
+      inkFill(g, PAPER, 1.5);
+    }
   }
 }
 

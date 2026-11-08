@@ -45,14 +45,26 @@
     return Math.abs(resolveDistance(stat, dist) - dist) <= 1;
   }
 
+  /* A building's stats at a level (1..4) on its chosen path: each level's
+     changes are applied on top of the ones before it. */
+  function levelStats(stat, level, path) {
+    const out = { ...stat };
+    const route = path && stat.paths && stat.paths[path];
+    if (route) {
+      for (const step of route.levels.slice(0, Math.min(level, 4) - 1)) Object.assign(out, step.stats);
+    }
+    return out;
+  }
+
   return {
     map: { width: 3000, height: 3000 },
     place,
     resolveDistance,
     isValidDistance,
+    levelStats,
+    maxLevel: 4,
 
     startGold: 200,
-    goldPerMill: 1, // per second
     refundRate: 0.5, // share of a building's price returned when removed
 
     player: {
@@ -78,6 +90,9 @@
     // ...and new sails make frigates and galleons this much faster.
     boosterMult: 1.4,
 
+    // Boats hit by a level-4 grapeshot cannon move at this share of their speed.
+    slowFactor: 0.6,
+
     // Transit bitmask for the armory researches (relayed as player `u`).
     upgradeFlags: { armor: 1, booster: 2, cannons: 4, cloak: 8 },
 
@@ -101,8 +116,67 @@
 
     buildingStats: [
       { role: "reef", type: 3, size: 30, cost: 15, health: 150, damage: 0 }, // 0 Reef
-      { role: "gun", type: 0, size: 29, cost: 40, health: 80, damage: 12, range: 170 }, // 1 Cannon
-      { role: "mill", type: 0, size: 32, cost: 50, health: 60, damage: 0 }, // 2 Windmill
+      {
+        role: "gun",
+        type: 0,
+        size: 29,
+        cost: 40,
+        health: 80,
+        damage: 12,
+        range: 170,
+        targets: 1,
+        // 1 Cannon. Upgrades: choose path A or B at level 2, then go on to 3 and 4.
+        paths: {
+          A: {
+            name: "Bateria rápida",
+            summary: "Mais dano e, no nível 4, dois alvos ao mesmo tempo.",
+            levels: [
+              { cost: 60, desc: "16 de dano/s", stats: { damage: 16 } },
+              { cost: 110, desc: "20 de dano/s e alcance 180", stats: { damage: 20, range: 180 } },
+              { cost: 200, desc: "26 de dano/s, em 2 alvos", stats: { damage: 26, targets: 2 } },
+            ],
+          },
+          B: {
+            name: "Metralha",
+            summary: "O tiro também acerta os barcos em volta do alvo.",
+            levels: [
+              { cost: 70, desc: "Acerta em volta do alvo (raio 40)", stats: { splash: 40, splashRate: 0.6 } },
+              { cost: 120, desc: "Raio 55", stats: { splash: 55 } },
+              { cost: 220, desc: "Raio 70, e quem é atingido fica lento", stats: { splash: 70, slowSeconds: 1 } },
+            ],
+          },
+        },
+      },
+      {
+        role: "mill",
+        type: 0,
+        size: 32,
+        cost: 50,
+        health: 60,
+        damage: 0,
+        gold: 1, // per second
+        // 2 Windmill
+        paths: {
+          A: {
+            name: "Engenho de ouro",
+            summary: "Rende cada vez mais ouro.",
+            levels: [
+              { cost: 60, desc: "1,5 de ouro/s", stats: { gold: 1.5 } },
+              { cost: 130, desc: "2 de ouro/s", stats: { gold: 2 } },
+              { cost: 280, desc: "3 de ouro/s", stats: { gold: 3 } },
+            ],
+          },
+          B: {
+            name: "Oficina de reparos",
+            summary: "Conserta as construções próximas e, no nível 4, a ilha.",
+            levels: [
+              { cost: 70, desc: "120 de vida, conserta 3/s em volta", stats: { health: 120, repair: 3, repairRange: 120 } },
+              { cost: 140, desc: "Conserta 6/s, em um raio maior", stats: { repair: 6, repairRange: 140 } },
+              { cost: 260, desc: "Conserta 10/s, e a ilha 5/s", stats: { repair: 10, islandRepair: 5 } },
+            ],
+          },
+        },
+      },
       { role: "hut", type: 0, size: 30, cost: 40, health: 60, damage: 0 }, // 3 Hut
       { role: "gun", type: 0, size: 32, cost: 110, health: 60, damage: 22, range: 250 }, // 4 Long gun
       { role: "arsenal", type: 0, size: 40, cost: 120, health: 120, damage: 0, limit: 1 }, // 5 Arsenal

@@ -108,6 +108,8 @@ function snapshot(p) {
       dir: bd.dir,
       hp: Math.ceil(Math.max(0, bd.hp)),
       t: bd.t, // tent upgrade tier (1..4), undefined for other buildings
+      lv: bd.level > 1 ? bd.level : undefined,
+      p: bd.path || undefined,
     })),
     soldiers: p.soldiers.map((s) => ({
       uid: s.uid,
@@ -116,6 +118,7 @@ function snapshot(p) {
       dir: s.dir,
       hp: Math.ceil(Math.max(0, s.hp)),
       kind: s.kind || "soldier",
+      sl: s.slowUntil > Date.now() ? 1 : undefined, // slowed by grapeshot
     })),
     u: p.upgrades || 0, // armory research bitmask
   };
@@ -277,7 +280,32 @@ function applyDockUpgrades(player, kept, sent) {
     const wanted = sent.get(rec.uid).t;
     while (Number.isInteger(wanted) && rec.t < wanted && COMBAT.tents[rec.t + 1]) {
       if (!spend(player, COMBAT.tents[rec.t + 1].cost)) break;
+      rec.invested += COMBAT.tents[rec.t + 1].cost;
       rec.t += 1;
+    }
+  }
+}
+
+/* Levels are bought one at a time, in order. The path is chosen with the first
+   upgrade and never changes after that. */
+function applyLevelUpgrades(player, kept, sent) {
+  for (const rec of kept) {
+    const paths = rec.stat.paths;
+    const inc = sent.get(rec.uid);
+    if (!paths || !Number.isInteger(inc.lv)) continue;
+
+    const path = rec.path || (paths[inc.p] ? inc.p : null);
+    if (!path) continue;
+
+    while (rec.level < Math.min(inc.lv, COMBAT.maxLevel)) {
+      const next = paths[path].levels[rec.level - 1];
+      if (!spend(player, next.cost)) break;
+      const oldMax = rec.eff.health;
+      rec.path = path;
+      rec.level += 1;
+      rec.invested += next.cost;
+      rec.eff = COMBAT.levelStats(rec.stat, rec.level, rec.path);
+      rec.hp += rec.eff.health - oldMax;
     }
   }
 }
@@ -300,6 +328,10 @@ function addNewBuilding(player, kept, inc) {
     stat,
     t: stat.role === "dock" ? 1 : undefined,
     tokens: 0, // boats a dock has had time to build
+    level: 1,
+    path: null,
+    eff: COMBAT.levelStats(stat, 1, null), // stats at the current level
+    invested: stat.cost, // everything paid for it, for the refund
   });
 }
 
@@ -314,11 +346,12 @@ function syncBuildings(player, incoming) {
   for (const rec of player.buildings) {
     known.add(rec.uid);
     if (sent.has(rec.uid)) kept.push(rec);
-    else player.power += Math.floor(rec.stat.cost * COMBAT.refundRate); // removed by its owner
+    else player.power += Math.floor(rec.invested * COMBAT.refundRate); // removed by its owner
   }
 
   applyBuildingMoves(player, kept, sent);
   applyDockUpgrades(player, kept, sent);
+  applyLevelUpgrades(player, kept, sent);
   for (const inc of sent.values()) {
     if (!known.has(inc.uid)) addNewBuilding(player, kept, inc);
   }
@@ -391,7 +424,8 @@ function moveBoat(player, boat, inc) {
   boat.movedAt = now;
 
   const boosted = boat.kind !== "soldier" && player.upgrades & COMBAT.upgradeFlags.booster;
-  const speed = boat.stat.speed * (boosted ? COMBAT.boosterMult : 1) * SPEED_SLACK;
+  const slowed = boat.slowUntil > now ? COMBAT.slowFactor : 1;
+  const speed = boat.stat.speed * (boosted ? COMBAT.boosterMult : 1) * slowed * SPEED_SLACK;
   boat.moveBudget = Math.min(boat.moveBudget + speed * elapsed, speed * MOVE_BURST_SECONDS + 30);
 
   const dx = inc.x - boat.x;
@@ -453,12 +487,31 @@ function applyPlayerState(player, msg) {
   if (Array.isArray(msg.soldiers)) syncBoats(player, msg.soldiers);
 }
 
+/* Repair workshops mend every building in their range (the best workshop in
+   reach counts, they don't add up) and, at the top level, the island. */
+function repairTick(p, dt) {
+  const shops = p.buildings.filter((b) => b.eff.repair);
+  if (shops.length === 0) return;
+
+  for (const b of p.buildings) {
+    let rate = 0;
+    for (const shop of shops) {
+      if (Math.hypot(shop.x - b.x, shop.y - b.y) <= shop.eff.repairRange) rate = Math.max(rate, shop.eff.repair);
+    }
+    if (rate > 0) b.hp = Math.min(b.eff.health, b.hp + rate * dt);
+  }
+
+  const island = Math.max(0, ...shops.map((shop) => shop.eff.islandRepair || 0));
+  if (island > 0) p.health = Math.min(COMBAT.player.health, p.health + island * dt);
+}
+
 /* Gold and boats accumulate on the server's own clock. */
 function economyTick(dt) {
   for (const p of players.values()) {
     if (p.dead) continue;
+    repairTick(p, dt);
     for (const b of p.buildings) {
-      if (b.stat.role === "mill") p.power += COMBAT.goldPerMill * dt;
+      if (b.eff.gold) p.power += b.eff.gold * dt;
       // a little faster than the client, so a real boat is never refused for being early
       if (b.stat.role === "dock") b.tokens = Math.min(2, b.tokens + dt / (COMBAT.tents[b.t].interval * 0.85));
     }
@@ -519,23 +572,23 @@ function awardKill(target, bounty) {
   return bestId;
 }
 
-/* The nearest enemy boat within range of a point. Cloaked frigates and galleons
-   can't be seen by cannons. */
-function nearestBoat(x, y, range, enemies, seenByCannons) {
-  let target = null;
-  let best = range * range;
+/* The enemy boats within range of a point, nearest first. Cloaked frigates and
+   galleons can't be seen by cannons. */
+function boatsInRange(x, y, range, enemies, seenByCannons) {
+  const found = [];
   for (const enemy of enemies) {
     const cloaked = enemy.upgrades & COMBAT.upgradeFlags.cloak;
     for (const boat of enemy.soldiers) {
       if (seenByCannons && cloaked && boat.kind !== "soldier") continue;
       const d = (boat.x - x) ** 2 + (boat.y - y) ** 2;
-      if (d <= best) {
-        best = d;
-        target = boat;
-      }
+      if (d <= range * range) found.push({ boat, d });
     }
   }
-  return target;
+  return found.sort((a, b) => a.d - b.d).map((f) => f.boat);
+}
+
+function nearestBoat(x, y, range, enemies, seenByCannons) {
+  return boatsInRange(x, y, range, enemies, seenByCannons)[0] || null;
 }
 
 /* The nearest of everything a boat's cannons can fire at. */
@@ -576,6 +629,7 @@ function nearestContact(boat, enemies) {
 /* Each attacker hits one target at a time. Only unprotected, living players take
    part, on both sides. */
 function combatTick(dt) {
+  const now = Date.now();
   const fighters = [...players.values()].filter((p) => !p.dead && !p.safe);
 
   for (const a of fighters) {
@@ -583,8 +637,15 @@ function combatTick(dt) {
 
     for (const bd of a.buildings) {
       if (bd.stat.role !== "gun") continue;
-      const target = nearestBoat(bd.x, bd.y, bd.stat.range, enemies, true);
-      if (target) hit(target, a, bd.stat.damage * dt);
+      const gun = bd.eff;
+      for (const target of boatsInRange(bd.x, bd.y, gun.range, enemies, true).slice(0, gun.targets || 1)) {
+        hit(target, a, gun.damage * dt);
+        if (gun.slowSeconds) target.slowUntil = now + gun.slowSeconds * 1000;
+        if (!gun.splash) continue;
+        for (const near of boatsInRange(target.x, target.y, gun.splash, enemies, true)) {
+          if (near !== target) hit(near, a, gun.damage * gun.splashRate * dt);
+        }
+      }
     }
 
     const intruder = nearestBoat(a.x, a.y, COMBAT.player.attackRange, enemies, false);

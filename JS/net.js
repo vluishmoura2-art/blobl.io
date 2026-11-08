@@ -202,6 +202,10 @@ function reconcileSelf(me) {
       p.hp = rb.hp;
       if (settled && rb.t) p.tier = rb.t;
       if (settled) {
+        p.level = rb.lv || 1;
+        p.path = rb.p || null;
+      }
+      if (settled) {
         p.x = rb.x;
         p.y = rb.y;
       }
@@ -218,6 +222,7 @@ function reconcileSelf(me) {
     const rs = serverS.get(s.uid);
     if (rs) {
       s.hp = rs.hp;
+      s.slowUntil = rs.sl ? now + 250 : 0;
       if (Math.hypot(rs.x - s.x, rs.y - s.y) > BOAT_DRIFT) {
         s.x = rs.x;
         s.y = rs.y;
@@ -282,6 +287,8 @@ function netUpdate(dt) {
       dir: p.dir,
       uid: p.uid,
       t: p.building.design === "tent" ? p.tier || 1 : undefined,
+      lv: p.level > 1 ? p.level : undefined,
+      p: p.path || undefined,
     })),
     soldiers: soldiers.map((s) => ({ x: s.x, y: s.y, dir: s.dir, uid: s.uid, kind: s.kind || "soldier" })),
   });
@@ -349,15 +356,19 @@ function drawRemotePlayer(rp) {
   drawTide(rp.x, rp.y, rp.id);
   paintIsland(ctx, rp.x, rp.y, r, color, rp.id);
   drawHitFlash(pieceKey(rp.id, "island"), rp.x, rp.y, r);
+  drawHealMark(pieceKey(rp.id, "island"), rp.x, rp.y, r);
   drawObjectHp(rp.x, rp.y - r - 14, r * 1.8, rp.health, COMBAT.player.health);
 
   for (const rb of rp.buildings) {
     const b = BUILDINGS[rb.b];
     if (!b) continue;
     const key = pieceKey(rp.id, rb.uid);
-    paintBuilding(ctx, b, rb.x, rb.y, b.size, color, aimOf(key, rb.dir || 0), rb.t || 1, FX.t);
+    const radial = Math.atan2(rb.y - rp.y, rb.x - rp.x);
+    paintBuilding(ctx, b, rb.x, rb.y, b.size, color, aimOf(key, radial), rb.t || 1, FX.t, rb.lv, rb.p);
+    paintLevelPips(ctx, rb.x, rb.y, b.size, radial, rb.lv, rb.p);
     drawHitFlash(key, rb.x, rb.y, b.size);
-    drawObjectHp(rb.x, rb.y - b.size - 10, Math.max(28, b.size * 1.4), rb.hp, b.health);
+    drawHealMark(key, rb.x, rb.y, b.size);
+    drawObjectHp(rb.x, rb.y - b.size - 10, Math.max(28, b.size * 1.4), rb.hp, COMBAT.levelStats(b, rb.lv || 1, rb.p || null).health);
   }
 
   for (const s of rp.soldiers) {

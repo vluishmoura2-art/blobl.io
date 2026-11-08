@@ -24,6 +24,10 @@ const battle = {
   motion: new Map(), // boat key -> motion between two snapshots
   health: new Map(), // piece key -> last known hp
   hits: new Map(), // piece key -> time of the last hit
+  heals: new Map(), // piece key -> time it was last repaired
+  rings: [], // grapeshot impacts
+  coins: [], // gold rising from upgraded windmills
+  coinTimers: new Map(), // windmill uid -> seconds until its next coin
   frame: 0,
   lastAttackNotice: -Infinity,
   sunkBy: null, // who sank our island
@@ -36,6 +40,10 @@ function resetBattle() {
   battle.motion.clear();
   battle.health.clear();
   battle.hits.clear();
+  battle.heals.clear();
+  battle.rings.length = 0;
+  battle.coins.length = 0;
+  battle.coinTimers.clear();
   battle.lastAttackNotice = -Infinity;
   battle.sunkBy = null;
 }
@@ -94,6 +102,7 @@ function boatPosition(ownerId, boat) {
 function trackHit(key, hp) {
   const before = battle.health.get(key);
   if (before !== undefined && hp < before) battle.hits.set(key, performance.now());
+  if (before !== undefined && hp > before + 0.01) battle.heals.set(key, performance.now());
   battle.health.set(key, hp);
 }
 
@@ -115,6 +124,7 @@ function syncHits(players) {
     if (!seen.has(key)) {
       battle.health.delete(key);
       battle.hits.delete(key);
+      battle.heals.delete(key);
     }
   }
 }
@@ -133,6 +143,30 @@ function drawHitFlash(key, x, y, r) {
   ctx.fill();
 }
 
+/* A green cross over a piece that is being repaired. */
+function drawHealMark(key, x, y, r) {
+  const at = battle.heals.get(key);
+  if (at === undefined) return;
+
+  const age = (performance.now() - at) / 600;
+  if (age >= 1) return;
+
+  const cx = x + r * 0.7;
+  const cy = y - r * 0.7 - age * 8;
+  ctx.save();
+  ctx.globalAlpha = 1 - age;
+  ctx.strokeStyle = HEAL;
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx - 5, cy);
+  ctx.lineTo(cx + 5, cy);
+  ctx.moveTo(cx, cy - 5);
+  ctx.lineTo(cx, cy + 5);
+  ctx.stroke();
+  ctx.restore();
+}
+
 /* ---------- AIMING AND SHOOTING ---------- */
 
 /* The same view of every player, whether it comes from the local game or from
@@ -146,8 +180,17 @@ function collectSides() {
     const flags = mine ? state.upgrades : rp.u;
 
     const buildings = mine
-      ? placement.placed.map((p) => ({ uid: p.uid, x: p.x, y: p.y, def: p.building, rest: buildingDir(p) }))
-      : rp.buildings.map((b) => ({ uid: b.uid, x: b.x, y: b.y, def: BUILDINGS[b.b], rest: b.dir || 0 }));
+      ? placement.placed.map((p) => ({ uid: p.uid, x: p.x, y: p.y, def: p.building, stats: pieceStats(p), rest: buildingDir(p) }))
+      : rp.buildings
+          .filter((b) => BUILDINGS[b.b])
+          .map((b) => ({
+            uid: b.uid,
+            x: b.x,
+            y: b.y,
+            def: BUILDINGS[b.b],
+            stats: COMBAT.levelStats(BUILDINGS[b.b], b.lv || 1, b.p || null),
+            rest: Math.atan2(b.y - rp.y, b.x - rp.x),
+          }));
 
     const boats = (mine ? soldiers : rp.soldiers).map((s) => {
       const kind = s.kind || "soldier";
@@ -191,7 +234,7 @@ function turnToward(current, wanted, amount) {
   return current + diff * amount;
 }
 
-function fireShot(x, y, target, kind) {
+function fireShot(x, y, target, kind, splash) {
   if (battle.shots.length >= SHOT.maxInFlight) return;
 
   const dist = Math.hypot(target.x - x, target.y - y);
@@ -201,8 +244,22 @@ function fireShot(x, y, target, kind) {
     dx: (target.x - x) / (dist || 1),
     dy: (target.y - y) / (dist || 1),
     left: dist,
-    r: SHOT.radius[kind],
+    r: splash ? 2 : SHOT.radius[kind],
+    splash: splash || 0, // grapeshot: a cluster of balls that opens a ring on impact
   });
+}
+
+/* The boats a gun can see, nearest first. */
+function boatsInRange(x, y, range, enemies, ignoreCloaked) {
+  const found = [];
+  for (const side of enemies) {
+    for (const boat of side.boats) {
+      if (ignoreCloaked && side.cloaked && boat.kind !== "soldier") continue;
+      const d = (boat.x - x) ** 2 + (boat.y - y) ** 2;
+      if (d <= range * range) found.push({ boat, d });
+    }
+  }
+  return found.sort((a, b) => a.d - b.d).map((f) => f.boat);
 }
 
 function nearestBoat(x, y, range, enemies, ignoreCloaked) {
@@ -244,8 +301,10 @@ function updateGuns(side, enemies, dt) {
     const design = building.def && building.def.design;
     if (design !== "turret" && design !== "sniper") continue;
 
+    const stats = building.stats;
     const gun = gunState(pieceKey(side.id, building.uid), building.rest);
-    const target = side.safe ? null : nearestBoat(building.x, building.y, building.def.range, enemies, true);
+    const targets = side.safe ? [] : boatsInRange(building.x, building.y, stats.range, enemies, true).slice(0, stats.targets || 1);
+    const target = targets[0] || null;
     const wanted = target ? Math.atan2(target.y - building.y, target.x - building.x) : building.rest;
 
     gun.dir = turnToward(gun.dir, wanted, 1 - Math.exp(-dt * 9));
@@ -253,12 +312,17 @@ function updateGuns(side, enemies, dt) {
 
     const onTarget = Math.abs(Math.atan2(Math.sin(wanted - gun.dir), Math.cos(wanted - gun.dir))) < 0.2;
     if (target && onTarget && gun.cool <= 0) {
-      gun.cool = SHOT.cooldown[design];
+      // more damage per second reads as a faster rate of fire
+      gun.cool = SHOT.cooldown[design] * (building.def.damage / stats.damage);
       const reach = building.def.size * (design === "sniper" ? 1.55 : 1.12);
-      const muzzleX = building.x + Math.cos(gun.dir) * reach;
-      const muzzleY = building.y + Math.sin(gun.dir) * reach;
-      fireShot(muzzleX, muzzleY, target, design);
-      burst(muzzleX, muzzleY, INK, 4, 60);
+      const side90 = gun.dir + Math.PI / 2;
+      targets.forEach((aim, i) => {
+        const offset = targets.length > 1 ? (i === 0 ? -0.24 : 0.24) * building.def.size : 0;
+        const muzzleX = building.x + Math.cos(gun.dir) * reach + Math.cos(side90) * offset;
+        const muzzleY = building.y + Math.sin(gun.dir) * reach + Math.sin(side90) * offset;
+        fireShot(muzzleX, muzzleY, aim, design, stats.splash);
+        burst(muzzleX, muzzleY, INK, 4, 60);
+      });
     }
   }
 }
@@ -327,8 +391,16 @@ function updateBattle(dt) {
       battle.shots.splice(i, 1);
       FX.wake.push({ x: shot.x, y: shot.y, r: 3, life: 0.8 });
       burst(shot.x, shot.y, INK, 3, 70);
+      if (shot.splash) battle.rings.push({ x: shot.x, y: shot.y, r: shot.splash, life: 1 });
     }
   }
+
+  for (let i = battle.rings.length - 1; i >= 0; i--) {
+    battle.rings[i].life -= dt * 4; // gone in a quarter of a second
+    if (battle.rings[i].life <= 0) battle.rings.splice(i, 1);
+  }
+
+  updateCoins(dt);
 
   for (let i = battle.blasts.length - 1; i >= 0; i--) {
     battle.blasts[i].life -= dt * battle.blasts[i].fade;
@@ -383,13 +455,87 @@ function drawBlast(blast) {
   ctx.restore();
 }
 
+/* Upgraded gold windmills (level 3 and up) send a small coin up now and then;
+   only their owner sees it. */
+function updateCoins(dt) {
+  for (const p of placement.placed) {
+    if (p.path !== "A" || pieceLevel(p) < 3 || p.building.design !== "generator") continue;
+    const left = (battle.coinTimers.get(p.uid) ?? Math.random() * 3) - dt;
+    if (left > 0) {
+      battle.coinTimers.set(p.uid, left);
+      continue;
+    }
+    battle.coinTimers.set(p.uid, 3);
+    battle.coins.push({ x: p.x + p.building.size * 0.6, y: p.y - p.building.size * 0.6, r: pieceLevel(p) >= 4 ? 5 : 3.5, life: 1 });
+  }
+
+  for (let i = battle.coins.length - 1; i >= 0; i--) {
+    const coin = battle.coins[i];
+    coin.life -= dt * 0.9;
+    coin.y -= dt * 16;
+    if (coin.life <= 0) battle.coins.splice(i, 1);
+  }
+}
+
+/* A teal ripple under every boat that grapeshot slowed down. */
+function drawSlowedBoats() {
+  const now = performance.now();
+  const mark = (x, y, size) => {
+    ctx.beginPath();
+    ctx.arc(x, y, size + 6, 0, Math.PI * 2);
+    ctx.stroke();
+  };
+
+  ctx.save();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = SLOW;
+  ctx.setLineDash([5, 4]);
+  for (const s of soldiers) {
+    if (s.slowUntil > now) mark(s.x, s.y, UNIT_STATS[s.kind || "soldier"].size);
+  }
+  for (const rp of net.players.values()) {
+    if (rp.id === net.id || rp.dead) continue;
+    for (const s of rp.soldiers) {
+      if (!s.sl) continue;
+      const at = boatPosition(rp.id, s);
+      mark(at.x, at.y, (COMBAT.units[s.kind] || COMBAT.soldier).size);
+    }
+  }
+  ctx.restore();
+}
+
 function drawBattle() {
+  drawSlowedBoats();
+
+  for (const ring of battle.rings) {
+    ctx.beginPath();
+    ctx.arc(ring.x, ring.y, ring.r * (0.7 + 0.3 * (1 - ring.life)), 0, Math.PI * 2);
+    ctx.fillStyle = colorWithAlpha(SPLASH, 0.25 * ring.life);
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = colorWithAlpha(SPLASH, ring.life);
+    ctx.stroke();
+  }
+
   ctx.fillStyle = INK;
   for (const shot of battle.shots) {
-    ctx.beginPath();
-    ctx.arc(shot.x, shot.y, shot.r, 0, Math.PI * 2);
-    ctx.fill();
+    const balls = shot.splash ? [[0, 0], [-3, 3], [3, 2]] : [[0, 0]];
+    for (const [ox, oy] of balls) {
+      ctx.beginPath();
+      ctx.arc(shot.x + ox, shot.y + oy, shot.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
+
+  for (const coin of battle.coins) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, coin.life * 1.5);
+    ctx.beginPath();
+    ctx.arc(coin.x, coin.y, coin.r, 0, Math.PI * 2);
+    inkFill(ctx, "#D9A62E", 1.5);
+    ctx.restore();
+  }
+
   for (const blast of battle.blasts) drawBlast(blast);
 }
 

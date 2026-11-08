@@ -30,7 +30,7 @@ npm test
 | Escolher construção | `1` a `7` ou a barra na parte de baixo |
 | Cancelar seleção | `Esc` |
 | Construir ou mandar os barcos navegarem | Clique esquerdo |
-| Evoluir o cais ou pesquisar no arsenal | Com a ferramenta dele selecionada, clique na construção |
+| Evoluir uma construção, o cais ou pesquisar no arsenal | Com a ferramenta dela selecionada, clique na construção. Canhão e moinho têm dois caminhos: a primeira evolução escolhe um deles |
 | Trocar duas construções de lugar | Modo Trocar: arraste uma até a outra |
 | Remover construção | Modo Remover: clique nela |
 | Ativar o PvP antes do fim da proteção | `Espaço` |
@@ -51,6 +51,7 @@ Preços, vida, dano e velocidades ficam todos em [`shared/combat.js`](shared/com
 | `JS/net.js` | Conexão com o servidor, outros jogadores e placar |
 | `JS/battle.js` | Mira, tiros, explosões, movimento suave e avisos na tela |
 | `JS/guide.js` | Primeiros passos do jogador |
+| `JS/upgrades.js` | Evoluções das construções e painel de escolha do caminho |
 | `JS/achievements.js` | Conquistas, salvas apenas no navegador do jogador |
 | `shared/combat.js` | Regras e valores do jogo, usados pelo cliente e pelo servidor |
 | `server.js` | Servidor WebSocket, validação das jogadas, combate e arquivos do jogo |

@@ -107,6 +107,29 @@
     </div>
   </div>
 
+  <div id="upgrade-choice" role="dialog" aria-labelledby="upgrade-title" hidden>
+    <p id="upgrade-title"></p>
+    <div class="choice-cards">
+      <button class="choice" type="button" data-path="A">
+        <span class="choice-key" aria-hidden="true">1</span>
+        <canvas width="120" height="120" aria-hidden="true"></canvas>
+        <span class="choice-name"></span>
+        <span class="choice-summary"></span>
+        <span class="choice-next"></span>
+        <span class="choice-cost"></span>
+      </button>
+      <button class="choice" type="button" data-path="B">
+        <span class="choice-key" aria-hidden="true">2</span>
+        <canvas width="120" height="120" aria-hidden="true"></canvas>
+        <span class="choice-name"></span>
+        <span class="choice-summary"></span>
+        <span class="choice-next"></span>
+        <span class="choice-cost"></span>
+      </button>
+    </div>
+    <p id="upgrade-note">A escolha é definitiva. Teclas 1 e 2 escolhem, Esc fecha.</p>
+  </div>
+
   <div id="toasts" role="status" aria-live="polite"></div>
   <div id="damage-edge" aria-hidden="true"></div>
 
@@ -178,6 +201,7 @@
   <script src="JS/main.js" defer></script>
   <script src="JS/net.js" defer></script>
   <script src="JS/battle.js" defer></script>
+  <script src="JS/upgrades.js" defer></script>
   <script src="JS/guide.js" defer></script>
   <script src="JS/achievements.js" defer></script>
 </body>
