@@ -26,6 +26,7 @@ const battle = {
   hits: new Map(), // piece key -> time of the last hit
   heals: new Map(), // piece key -> time it was last repaired
   rings: [], // grapeshot impacts
+  lines: [], // marksman aim lines and piercing shot trails
   coins: [], // gold rising from upgraded windmills
   coinTimers: new Map(), // windmill uid -> seconds until its next coin
   frame: 0,
@@ -42,6 +43,7 @@ function resetBattle() {
   battle.hits.clear();
   battle.heals.clear();
   battle.rings.length = 0;
+  battle.lines.length = 0;
   battle.coins.length = 0;
   battle.coinTimers.clear();
   battle.lastAttackNotice = -Infinity;
@@ -163,6 +165,39 @@ function drawHealMark(key, x, y, r) {
   ctx.lineTo(cx + 5, cy);
   ctx.moveTo(cx, cy - 5);
   ctx.lineTo(cx, cy + 5);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* The area a cutting reef slows down: a teal dashed circle everyone can see. */
+function drawSlowZone(x, y, stats) {
+  if (!stats.slowRange) return;
+  ctx.save();
+  ctx.setLineDash([9, 7]);
+  ctx.lineWidth = stats.slowMul <= 0.5 ? 3 : 2;
+  ctx.strokeStyle = colorWithAlpha(SLOW, 0.7);
+  ctx.beginPath();
+  ctx.arc(x, y, stats.slowRange, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* True when one of our scoped long guns can see this spot through the fog. */
+function revealedByScope(x, y) {
+  return placement.placed.some((p) => {
+    const stats = pieceStats(p);
+    return stats.seesCloak && Math.hypot(p.x - x, p.y - y) <= stats.range;
+  });
+}
+
+/* A dashed ink ring around a cloaked boat that our scope has spotted. */
+function drawScopeMark(x, y, size) {
+  ctx.save();
+  ctx.setLineDash([4, 4]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = INK;
+  ctx.beginPath();
+  ctx.arc(x, y, size + 7, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
@@ -303,7 +338,10 @@ function updateGuns(side, enemies, dt) {
 
     const stats = building.stats;
     const gun = gunState(pieceKey(side.id, building.uid), building.rest);
-    const targets = side.safe ? [] : boatsInRange(building.x, building.y, stats.range, enemies, true).slice(0, stats.targets || 1);
+    const ignoreCloaked = !stats.seesCloak;
+    const targets = side.safe
+      ? []
+      : boatsInRange(building.x, building.y, stats.range, enemies, ignoreCloaked).slice(0, stats.targets || 1);
     const target = targets[0] || null;
     const wanted = target ? Math.atan2(target.y - building.y, target.x - building.x) : building.rest;
 
@@ -322,6 +360,17 @@ function updateGuns(side, enemies, dt) {
         const muzzleY = building.y + Math.sin(gun.dir) * reach + Math.sin(side90) * offset;
         fireShot(muzzleX, muzzleY, aim, design, stats.splash);
         burst(muzzleX, muzzleY, INK, 4, 60);
+        // the top marksman shows its aim for a moment
+        if (stats.seesCloak && stats.damage > building.def.damage) {
+          battle.lines.push({ x1: muzzleX, y1: muzzleY, x2: aim.x, y2: aim.y, life: 1, fade: 6.5, dotted: true });
+        }
+        // a piercing shot leaves a trail through the target to the boat behind it
+        if (stats.pierce) {
+          const behind = boatsInRange(aim.x, aim.y, stats.pierce, enemies, ignoreCloaked).find(
+            (b) => b !== aim && (b.x - aim.x) * (aim.x - building.x) + (b.y - aim.y) * (aim.y - building.y) > 0
+          );
+          if (behind) battle.lines.push({ x1: aim.x, y1: aim.y, x2: behind.x, y2: behind.y, life: 1, fade: 3.3, dotted: false });
+        }
       });
     }
   }
@@ -393,6 +442,11 @@ function updateBattle(dt) {
       burst(shot.x, shot.y, INK, 3, 70);
       if (shot.splash) battle.rings.push({ x: shot.x, y: shot.y, r: shot.splash, life: 1 });
     }
+  }
+
+  for (let i = battle.lines.length - 1; i >= 0; i--) {
+    battle.lines[i].life -= dt * battle.lines[i].fade;
+    if (battle.lines[i].life <= 0) battle.lines.splice(i, 1);
   }
 
   for (let i = battle.rings.length - 1; i >= 0; i--) {
@@ -506,6 +560,19 @@ function drawSlowedBoats() {
 
 function drawBattle() {
   drawSlowedBoats();
+
+  for (const line of battle.lines) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, line.life);
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = line.dotted ? 1.5 : 2.5;
+    if (line.dotted) ctx.setLineDash([2, 6]);
+    ctx.beginPath();
+    ctx.moveTo(line.x1, line.y1);
+    ctx.lineTo(line.x2, line.y2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   for (const ring of battle.rings) {
     ctx.beginPath();

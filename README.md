@@ -30,7 +30,7 @@ npm test
 | Escolher construção | `1` a `7` ou a barra na parte de baixo |
 | Cancelar seleção | `Esc` |
 | Construir ou mandar os barcos navegarem | Clique esquerdo |
-| Evoluir uma construção, o cais ou pesquisar no arsenal | Com a ferramenta dela selecionada, clique na construção. Canhão e moinho têm dois caminhos: a primeira evolução escolhe um deles |
+| Evoluir uma construção, o cais ou pesquisar no arsenal | Com a ferramenta dela selecionada, clique na construção. Recife, canhão, moinho, cabana e canhão longo têm dois caminhos: a primeira evolução escolhe um deles |
 | Trocar duas construções de lugar | Modo Trocar: arraste uma até a outra |
 | Remover construção | Modo Remover: clique nela |
 | Ativar o PvP antes do fim da proteção | `Espaço` |

@@ -221,6 +221,22 @@ const dockDistance = COMBAT.place.buildRange + COMBAT.buildingStats[DOCK].size;
   assert(switched.buildings.find((b) => b.uid === 104).p === "A", "a chosen path can't be changed");
   console.log("  upgrades OK: levels are charged in order and the path is final");
 
+  // 8c. a scoped long gun (marksman, level 3) sees the cloaked frigate again
+  const scoped = A.state.buildings.find((b) => b.uid === 103);
+  const frigateBefore = (await withTimeout(B.next("update"), 3000, "frigate hp"))
+    .players.find((p) => p.id === wb.id)
+    .soldiers.find((s) => s.uid === 302).hp;
+  scoped.lv = 3;
+  scoped.p = "A";
+  await waitForPlayer(
+    B,
+    wb.id,
+    (p) => p.soldiers.some((s) => s.uid === 302 && s.hp < frigateBefore - 5),
+    "scope sees the fog curtain"
+  );
+  A.state.buildings = A.state.buildings.filter((b) => b.uid !== 103); // keep the frigate alive for step 10
+  console.log("  scope OK: a marksman long gun fires through the fog curtain");
+
   // 9. cheats, from a player with the normal starting gold
   CONFIG.startPower = COMBAT.startGold;
   const C = await connect();

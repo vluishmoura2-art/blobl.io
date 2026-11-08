@@ -430,15 +430,19 @@ function updatePower(dt) {
 }
 
 /* ---------- SOLDIERS ---------- */
-/* Huts raise how many dinghies you can field. */
-function countHouses() {
-  let n = 0;
-  for (const p of placement.placed) if (p.building.design === "house") n++;
-  return n;
+/* Huts raise how many dinghies you can field (villages raise it further). */
+function soldierLimit() {
+  return placement.placed.reduce((limit, p) => limit + (pieceStats(p).boatCap || 0), COMBAT.boatLimits.soldierBase);
 }
 
-function soldierLimit() {
-  return COMBAT.boatLimits.soldierBase + COMBAT.boatLimits.perHut * countHouses();
+/* The best sailors' school: its bonuses don't add up across huts. */
+function crewBonus() {
+  let best = { health: 0, marks: 0 };
+  for (const p of placement.placed) {
+    const stats = pieceStats(p);
+    if (stats.crewHealth && pieceLevel(p) - 1 > best.marks) best = { health: stats.crewHealth, marks: pieceLevel(p) - 1 };
+  }
+  return best;
 }
 
 function spawnUnit(tent) {
@@ -460,7 +464,9 @@ function spawnUnit(tent) {
     oy: (Math.random() * 2 - 1) * FLEET_SPREAD,
     uid: nextUid(),
     kind: cfg.unit,
-    hp: stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1),
+    hp: stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1) * (1 + crewBonus().health),
+    maxHp: stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1) * (1 + crewBonus().health),
+    crew: crewBonus().marks,
   });
 }
 
@@ -522,7 +528,7 @@ function updateSoldiers(dt) {
         const kind = s.kind || "soldier";
         const base = UNIT_STATS[kind].speed;
         const boosted = kind !== "soldier" && hasUpgrade("booster") ? base * COMBAT.boosterMult : base;
-        const speed = s.slowUntil > performance.now() ? boosted * COMBAT.slowFactor : boosted;
+        const speed = s.slowUntil > performance.now() ? boosted * (s.slowMul || COMBAT.slowFactor) : boosted;
 
         s.dir = Math.atan2(dy, dx);
         const step = Math.min(speed * dt, d);
@@ -575,10 +581,10 @@ function drawSoldiers() {
   for (const s of soldiers) {
     const kind = s.kind || "soldier";
     const stat = UNIT_STATS[kind];
-    paintBoat(ctx, s.x, s.y, stat.size, s.dir, STYLE.fill, kind, cannons && kind !== "soldier");
+    paintBoat(ctx, s.x, s.y, stat.size, s.dir, STYLE.fill, kind, cannons && kind !== "soldier", s.crew);
     drawHitFlash(pieceKey(net.id, s.uid), s.x, s.y, stat.size * 0.8);
     if (s.hp !== undefined) {
-      const max = stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1);
+      const max = s.maxHp || stat.health * (hasUpgrade("armor") ? COMBAT.powerArmorMult : 1);
       drawObjectHp(s.x, s.y - stat.size - 8, stat.size * 1.6, s.hp, max);
     }
   }
@@ -1091,6 +1097,7 @@ function drawPlacedBuilding(p) {
 
   const key = pieceKey(net.id, p.uid);
   const radial = buildingDir(p);
+  drawSlowZone(p.x, p.y, pieceStats(p));
   paintBuilding(ctx, p.building, p.x, p.y, p.building.size * pop, STYLE.fill, aimOf(key, radial), p.tier, FX.t, p.level, p.path);
   paintLevelPips(ctx, p.x, p.y, p.building.size, radial, p.level, p.path);
   drawHitFlash(key, p.x, p.y, p.building.size);

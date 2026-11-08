@@ -223,6 +223,9 @@ function reconcileSelf(me) {
     if (rs) {
       s.hp = rs.hp;
       s.slowUntil = rs.sl ? now + 250 : 0;
+      s.slowMul = rs.sl || 1;
+      if (rs.mh) s.maxHp = rs.mh;
+      s.crew = rs.cr || 0;
       if (Math.hypot(rs.x - s.x, rs.y - s.y) > BOAT_DRIFT) {
         s.x = rs.x;
         s.y = rs.y;
@@ -364,6 +367,7 @@ function drawRemotePlayer(rp) {
     if (!b) continue;
     const key = pieceKey(rp.id, rb.uid);
     const radial = Math.atan2(rb.y - rp.y, rb.x - rp.x);
+    drawSlowZone(rb.x, rb.y, COMBAT.levelStats(b, rb.lv || 1, rb.p || null));
     paintBuilding(ctx, b, rb.x, rb.y, b.size, color, aimOf(key, radial), rb.t || 1, FX.t, rb.lv, rb.p);
     paintLevelPips(ctx, rb.x, rb.y, b.size, radial, rb.lv, rb.p);
     drawHitFlash(key, rb.x, rb.y, b.size);
@@ -379,11 +383,12 @@ function drawRemotePlayer(rp) {
     ctx.save();
     // fog curtain: enemy captains see a pale shape, enemy cannons see nothing
     if (cloaked && kind !== "soldier") ctx.globalAlpha = 0.35;
-    paintBoat(ctx, at.x, at.y, stat.size, at.dir, color, kind, cannons && kind !== "soldier");
+    paintBoat(ctx, at.x, at.y, stat.size, at.dir, color, kind, cannons && kind !== "soldier", s.cr);
     ctx.restore();
+    if (cloaked && kind !== "soldier" && revealedByScope(at.x, at.y)) drawScopeMark(at.x, at.y, stat.size);
     drawHitFlash(pieceKey(rp.id, s.uid), at.x, at.y, stat.size * 0.8);
 
-    drawObjectHp(at.x, at.y - stat.size - 8, stat.size * 1.6, s.hp, stat.health * (armored ? COMBAT.powerArmorMult : 1));
+    drawObjectHp(at.x, at.y - stat.size - 8, stat.size * 1.6, s.hp, s.mh || stat.health * (armored ? COMBAT.powerArmorMult : 1));
   }
 
   if (rp.safe) drawSafeRing(rp.x, rp.y);

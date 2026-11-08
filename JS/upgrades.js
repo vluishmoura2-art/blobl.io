@@ -63,11 +63,13 @@ function upgradePiece(p) {
 function paintChoicePreview(canvas, building, path) {
   const g = canvas.getContext("2d");
   const box = canvas.width / 2;
-  const scale = box / 50;
+  const long = building.design === "sniper"; // its barrel needs more room
+  const scale = box / (long ? 76 : 50);
+  const upright = building.design === "house";
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.clearRect(0, 0, canvas.width, canvas.height);
   g.setTransform(scale, 0, 0, scale, box, box);
-  paintBuilding(g, building, -4, 0, building.size, STYLE.fill, -0.5, 1, 0.6, COMBAT.maxLevel, path);
+  paintBuilding(g, building, long ? -24 : -4, upright ? 6 : 0, building.size, STYLE.fill, upright ? 0 : -0.5, 1, 0.6, COMBAT.maxLevel, path);
 }
 
 function openUpgradeChoice(p) {

@@ -118,7 +118,9 @@ function snapshot(p) {
       dir: s.dir,
       hp: Math.ceil(Math.max(0, s.hp)),
       kind: s.kind || "soldier",
-      sl: s.slowUntil > Date.now() ? 1 : undefined, // slowed by grapeshot
+      sl: speedFactor(s, Date.now()) < 1 ? Math.round(speedFactor(s, Date.now()) * 100) / 100 : undefined, // share of speed left
+      mh: Math.ceil(s.maxHp), // max hp (armor and crew training raise it)
+      cr: s.crew || undefined, // crew training marks (0..3)
     })),
     u: p.upgrades || 0, // armory research bitmask
   };
@@ -361,8 +363,25 @@ function syncBuildings(player, incoming) {
 
 function boatLimit(player, kind) {
   if (kind !== "soldier") return COMBAT.boatLimits[kind];
-  const huts = player.buildings.filter((b) => b.stat.role === "hut").length;
-  return COMBAT.boatLimits.soldierBase + COMBAT.boatLimits.perHut * huts;
+  return player.buildings.reduce((limit, b) => limit + (b.eff.boatCap || 0), COMBAT.boatLimits.soldierBase);
+}
+
+/* The best sailors' school a player has: its bonuses don't add up across huts. */
+function crewOf(player) {
+  let best = { health: 0, damage: 0, marks: 0 };
+  for (const b of player.buildings) {
+    if (!b.eff.crewHealth) continue;
+    const marks = b.level - 1;
+    if (marks > best.marks) best = { health: b.eff.crewHealth, damage: b.eff.crewDamage || 0, marks };
+  }
+  return best;
+}
+
+/* How much of its speed a boat has left: grapeshot and cutting reefs slow it. */
+function speedFactor(boat, now) {
+  const shot = boat.slowUntil > now ? COMBAT.slowFactor : 1;
+  const reef = boat.reefSlowUntil > now ? boat.reefSlow : 1;
+  return Math.min(shot, reef);
 }
 
 /* Every boat comes from a dock that has had time to build it. */
@@ -385,6 +404,8 @@ function addNewBoat(player, boats, inc) {
   dock.tokens -= 1;
 
   const armor = player.upgrades & COMBAT.upgradeFlags.armor ? COMBAT.powerArmorMult : 1;
+  const crew = crewOf(player);
+  const maxHp = stat.health * armor * (1 + crew.health);
   boats.push({
     uid: inc.uid,
     x: inc.x,
@@ -393,7 +414,9 @@ function addNewBoat(player, boats, inc) {
     kind,
     size: stat.size,
     stat,
-    hp: stat.health * armor,
+    hp: maxHp,
+    maxHp,
+    crew: crew.marks,
     moveBudget: 30,
     movedAt: Date.now(),
   });
@@ -424,8 +447,7 @@ function moveBoat(player, boat, inc) {
   boat.movedAt = now;
 
   const boosted = boat.kind !== "soldier" && player.upgrades & COMBAT.upgradeFlags.booster;
-  const slowed = boat.slowUntil > now ? COMBAT.slowFactor : 1;
-  const speed = boat.stat.speed * (boosted ? COMBAT.boosterMult : 1) * slowed * SPEED_SLACK;
+  const speed = boat.stat.speed * (boosted ? COMBAT.boosterMult : 1) * speedFactor(boat, now) * SPEED_SLACK;
   boat.moveBudget = Math.min(boat.moveBudget + speed * elapsed, speed * MOVE_BURST_SECONDS + 30);
 
   const dx = inc.x - boat.x;
@@ -488,18 +510,21 @@ function applyPlayerState(player, msg) {
 }
 
 /* Repair workshops mend every building in their range (the best workshop in
-   reach counts, they don't add up) and, at the top level, the island. */
+   reach counts, they don't add up) and, at the top level, the island. Coral
+   walls mend themselves on top of that. */
 function repairTick(p, dt) {
   const shops = p.buildings.filter((b) => b.eff.repair);
-  if (shops.length === 0) return;
 
   for (const b of p.buildings) {
-    let rate = 0;
-    for (const shop of shops) {
-      if (Math.hypot(shop.x - b.x, shop.y - b.y) <= shop.eff.repairRange) rate = Math.max(rate, shop.eff.repair);
+    let rate = b.eff.selfRepair || 0;
+    let shop = 0;
+    for (const s of shops) {
+      if (Math.hypot(s.x - b.x, s.y - b.y) <= s.eff.repairRange) shop = Math.max(shop, s.eff.repair);
     }
+    rate += shop;
     if (rate > 0) b.hp = Math.min(b.eff.health, b.hp + rate * dt);
   }
+  if (shops.length === 0) return;
 
   const island = Math.max(0, ...shops.map((shop) => shop.eff.islandRepair || 0));
   if (island > 0) p.health = Math.min(COMBAT.player.health, p.health + island * dt);
@@ -628,9 +653,41 @@ function nearestContact(boat, enemies) {
 
 /* Each attacker hits one target at a time. Only unprotected, living players take
    part, on both sides. */
+/* A gun's damage against one boat: piercing guns hit frigates and galleons harder. */
+function gunDamage(gun, boat) {
+  return gun.damage * (boat.kind !== "soldier" ? gun.heavyMult || 1 : 1);
+}
+
+/* The boat right behind a target, as seen from the gun (for piercing shots). */
+function boatBehind(gunAt, target, reach, enemies, seenByCannons) {
+  const dx = target.x - gunAt.x;
+  const dy = target.y - gunAt.y;
+  return (
+    boatsInRange(target.x, target.y, reach, enemies, seenByCannons).find(
+      (b) => b !== target && (b.x - target.x) * dx + (b.y - target.y) * dy > 0
+    ) || null
+  );
+}
+
+/* Cutting reefs hurt boats that touch them and slow the ones passing near. */
+function reefTick(a, enemies, dt, now) {
+  for (const reef of a.buildings) {
+    const r = reef.eff;
+    if (reef.stat.role !== "reef" || (!r.thorns && !r.slowRange)) continue;
+    for (const enemy of enemies) {
+      for (const boat of enemy.soldiers) {
+        const d = Math.hypot(boat.x - reef.x, boat.y - reef.y);
+        if (r.thorns && d <= reef.size + boat.size + 3) hit(boat, a, r.thorns * dt);
+        if (r.slowRange && d <= r.slowRange) boat.reefSlowNext = Math.min(boat.reefSlowNext, r.slowMul);
+      }
+    }
+  }
+}
+
 function combatTick(dt) {
   const now = Date.now();
   const fighters = [...players.values()].filter((p) => !p.dead && !p.safe);
+  for (const p of fighters) for (const boat of p.soldiers) boat.reefSlowNext = 1;
 
   for (const a of fighters) {
     const enemies = fighters.filter((b) => b !== a);
@@ -638,24 +695,40 @@ function combatTick(dt) {
     for (const bd of a.buildings) {
       if (bd.stat.role !== "gun") continue;
       const gun = bd.eff;
-      for (const target of boatsInRange(bd.x, bd.y, gun.range, enemies, true).slice(0, gun.targets || 1)) {
-        hit(target, a, gun.damage * dt);
+      const seen = !gun.seesCloak; // a scoped long gun sees through the fog curtain
+      for (const target of boatsInRange(bd.x, bd.y, gun.range, enemies, seen).slice(0, gun.targets || 1)) {
+        hit(target, a, gunDamage(gun, target) * dt);
         if (gun.slowSeconds) target.slowUntil = now + gun.slowSeconds * 1000;
+        if (gun.pierce) {
+          const behind = boatBehind(bd, target, gun.pierce, enemies, seen);
+          if (behind) hit(behind, a, gunDamage(gun, behind) * dt);
+        }
         if (!gun.splash) continue;
-        for (const near of boatsInRange(target.x, target.y, gun.splash, enemies, true)) {
-          if (near !== target) hit(near, a, gun.damage * gun.splashRate * dt);
+        for (const near of boatsInRange(target.x, target.y, gun.splash, enemies, seen)) {
+          if (near !== target) hit(near, a, gunDamage(gun, near) * gun.splashRate * dt);
         }
       }
     }
+
+    reefTick(a, enemies, dt, now);
 
     const intruder = nearestBoat(a.x, a.y, COMBAT.player.attackRange, enemies, false);
     if (intruder) hit(intruder, a, COMBAT.player.damage * dt);
 
     const cannons = a.upgrades & COMBAT.upgradeFlags.cannons;
+    const crew = crewOf(a);
     for (const boat of a.soldiers) {
       const target =
         cannons && boat.kind !== "soldier" ? nearestTarget(boat, boat.stat.range, enemies) : nearestContact(boat, enemies);
-      if (target) hit(target, a, boat.stat.damage * dt);
+      if (target) hit(target, a, boat.stat.damage * (1 + crew.damage) * dt);
+    }
+  }
+
+  for (const p of fighters) {
+    for (const boat of p.soldiers) {
+      if (boat.reefSlowNext >= 1) continue;
+      boat.reefSlow = boat.reefSlowNext;
+      boat.reefSlowUntil = now + 250;
     }
   }
 

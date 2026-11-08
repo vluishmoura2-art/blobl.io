@@ -80,7 +80,7 @@
     units: { soldier, tank, siege },
 
     // How many boats of each class a captain can have at once.
-    boatLimits: { soldierBase: 3, perHut: 2, tank: 6, siege: 3 },
+    boatLimits: { soldierBase: 3, tank: 6, siege: 3 }, // each hut adds its boatCap
 
     // Gold for destroying something (the rest of a building's bounty scales with its price).
     bounty: { soldier: 8, tank: 40, siege: 120, buildingRate: 0.25, island: 300 },
@@ -115,7 +115,39 @@
     ],
 
     buildingStats: [
-      { role: "reef", type: 3, size: 30, cost: 15, health: 150, damage: 0 }, // 0 Reef
+      {
+        role: "reef",
+        type: 3,
+        size: 30,
+        cost: 15,
+        health: 150,
+        damage: 0,
+        // 0 Reef
+        paths: {
+          A: {
+            name: "Muralha de coral",
+            summary: "Muito mais vida e, depois, se conserta sozinha.",
+            levels: [
+              { cost: 30, desc: "300 de vida", stats: { health: 300 } },
+              { cost: 60, desc: "500 de vida, e se conserta 3/s", stats: { health: 500, selfRepair: 3 } },
+              { cost: 120, desc: "800 de vida, e se conserta 6/s", stats: { health: 800, selfRepair: 6 } },
+            ],
+          },
+          B: {
+            name: "Recife cortante",
+            summary: "Fere quem encosta e deixa lento quem passa perto.",
+            levels: [
+              { cost: 30, desc: "Fere os barcos que encostam (6/s)", stats: { thorns: 6 } },
+              {
+                cost: 70,
+                desc: "12/s, e barcos próximos ficam 30% mais lentos",
+                stats: { thorns: 12, slowRange: 75, slowMul: 0.7 },
+              },
+              { cost: 140, desc: "20/s, e a lentidão sobe para 50%", stats: { thorns: 20, slowMul: 0.5 } },
+            ],
+          },
+        },
+      },
       {
         role: "gun",
         type: 0,
@@ -177,8 +209,66 @@
           },
         },
       },
-      { role: "hut", type: 0, size: 30, cost: 40, health: 60, damage: 0 }, // 3 Hut
-      { role: "gun", type: 0, size: 32, cost: 110, health: 60, damage: 22, range: 250 }, // 4 Long gun
+      {
+        role: "hut",
+        type: 0,
+        size: 30,
+        cost: 40,
+        health: 60,
+        damage: 0,
+        boatCap: 2, // extra dinghies this hut allows
+        // 3 Hut
+        paths: {
+          A: {
+            name: "Vila",
+            summary: "Cada vez mais vagas para botes.",
+            levels: [
+              { cost: 50, desc: "+3 no limite de botes", stats: { boatCap: 3 } },
+              { cost: 100, desc: "+4 no limite de botes", stats: { boatCap: 4 } },
+              { cost: 180, desc: "+5 no limite de botes", stats: { boatCap: 5 } },
+            ],
+          },
+          B: {
+            name: "Escola de marujos",
+            summary: "Barcos novos mais fortes. Vale a melhor escola, sem somar.",
+            levels: [
+              { cost: 80, desc: "+15% de vida nos barcos novos", stats: { crewHealth: 0.15 } },
+              { cost: 160, desc: "+15% de vida e +15% de dano", stats: { crewDamage: 0.15 } },
+              { cost: 300, desc: "+25% de vida e +25% de dano", stats: { crewHealth: 0.25, crewDamage: 0.25 } },
+            ],
+          },
+        },
+      },
+      {
+        role: "gun",
+        type: 0,
+        size: 32,
+        cost: 110,
+        health: 60,
+        damage: 22,
+        range: 250,
+        // 4 Long gun
+        paths: {
+          A: {
+            name: "Atirador de elite",
+            summary: "Alcance cada vez maior; no nível 3, enxerga a Cortina de névoa.",
+            levels: [
+              { cost: 120, desc: "Alcance 280", stats: { range: 280 } },
+              { cost: 220, desc: "Alcance 300, e enxerga barcos na névoa", stats: { range: 300, seesCloak: true } },
+              { cost: 380, desc: "Alcance 320 e 30 de dano/s", stats: { range: 320, damage: 30 } },
+            ],
+          },
+          B: {
+            name: "Perfurante",
+            summary: "Muito mais forte contra fragatas e galeões.",
+            levels: [
+              { cost: 130, desc: "+50% de dano em fragatas e galeões", stats: { heavyMult: 1.5 } },
+              { cost: 240, desc: "+100% de dano neles", stats: { heavyMult: 2 } },
+              { cost: 400, desc: "O tiro atravessa e acerta o barco de trás", stats: { pierce: 90 } },
+            ],
+          },
+        },
+      },
       { role: "arsenal", type: 0, size: 40, cost: 120, health: 120, damage: 0, limit: 1 }, // 5 Arsenal
       { role: "dock", type: 2, size: 34, cost: 120, health: 140, damage: 0, limit: 3 }, // 6 Dock
     ],
