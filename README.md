@@ -18,6 +18,8 @@ Depois, abra <http://localhost:8080>. Para testar o multiplayer, abra várias ab
 
 ## Testes
 
+O comando abaixo roda os testes de regras (sem rede) e o teste do multiplayer. Para ver a taxa de quadros no navegador, abra o jogo com `?fps` no fim do endereço, como em <http://localhost:8080/?fps>.
+
 ```bash
 npm test
 ```

@@ -1175,9 +1175,24 @@ function drawUpgradeHint(w, h) {
 }
 
 /* ---------- LOOP ---------- */
+/* Open the game with ?fps at the end of the address to see the frame rate. */
+const FPS_METER = new URLSearchParams(location.search).has("fps");
+const fps = { frames: 0, since: 0 };
+
+function updateFpsMeter(time) {
+  fps.frames += 1;
+  if (time - fps.since < 1000) return;
+  const el = document.getElementById("fps");
+  el.hidden = false;
+  el.textContent = Math.round((fps.frames * 1000) / (time - fps.since)) + " FPS";
+  fps.frames = 0;
+  fps.since = time;
+}
+
 function loop(time) {
   const dt = Math.min((time - lastTime) / 1000 || 0, 0.05);
   lastTime = time;
+  if (FPS_METER) updateFpsMeter(time);
 
   updateCamera(dt);
   updatePower(dt);

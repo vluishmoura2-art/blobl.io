@@ -402,33 +402,51 @@ function updateIslandAndBoatFire(side, enemies, dt) {
   }
 }
 
-/* Boats ramming enemy pieces throw off splinters at the point of contact. */
+/* Boats ramming enemy pieces throw off splinters at the point of contact. Only a
+   few per frame: in a big brawl the screen would fill up, and the frame rate drop. */
+const SPARKS_PER_FRAME = 12;
+const PIECE_REACH = PLACE.buildRange + 40; // how far from its island a building can stand
+
 function updateRamming(side, enemies, dt) {
-  if (side.safe) return;
+  if (side.safe || battle.sparksLeft <= 0) return;
 
   const { w, h } = viewSize();
   const chance = dt * 7;
 
   for (const boat of side.boats) {
     if (Math.abs(boat.x - camera.x) > w / 2 + 60 || Math.abs(boat.y - camera.y) > h / 2 + 60) continue;
+    if (Math.random() > chance) continue; // decide first: most frames throw no splinter at all
+
+    const size = boat.stat.size;
+    let hit = null;
+    let hitSize = 0;
+    const touch = (x, y, other) => {
+      const reach = other + size;
+      if (!hit && (x - boat.x) ** 2 + (y - boat.y) ** 2 <= reach * reach) {
+        hit = { x, y };
+        hitSize = other;
+      }
+    };
 
     for (const enemy of enemies) {
-      const contact = (x, y, reach) => {
-        const d = Math.hypot(x - boat.x, y - boat.y);
-        if (d > reach || Math.random() > chance) return;
-        const along = boat.stat.size / (d || 1);
-        burst(boat.x + (x - boat.x) * along, boat.y + (y - boat.y) * along, INK, 3, 90);
-      };
-
-      contact(enemy.x, enemy.y, COMBAT.player.baseRadius + boat.stat.size);
-      for (const b of enemy.buildings) if (b.def) contact(b.x, b.y, b.def.size + boat.stat.size);
-      for (const other of enemy.boats) contact(other.x, other.y, other.stat.size + boat.stat.size);
+      if ((enemy.x - boat.x) ** 2 + (enemy.y - boat.y) ** 2 <= (PIECE_REACH + size) ** 2) {
+        touch(enemy.x, enemy.y, COMBAT.player.baseRadius);
+        for (const b of enemy.buildings) if (b.def) touch(b.x, b.y, b.def.size);
+      }
+      for (const other of enemy.boats) touch(other.x, other.y, other.stat.size);
+      if (hit) break;
     }
+    if (!hit) continue;
+
+    const d = Math.hypot(hit.x - boat.x, hit.y - boat.y) || 1;
+    burst(boat.x + ((hit.x - boat.x) / d) * size, boat.y + ((hit.y - boat.y) / d) * size, INK, 3, 90);
+    if (--battle.sparksLeft <= 0) return;
   }
 }
 
 function updateBattle(dt) {
   battle.frame += 1;
+  battle.sparksLeft = SPARKS_PER_FRAME;
 
   for (let i = battle.shots.length - 1; i >= 0; i--) {
     const shot = battle.shots[i];

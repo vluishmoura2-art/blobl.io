@@ -14,6 +14,11 @@
 
    Damage values are per second. To change the balance of the
    game, this is the file to edit.
+
+   Upgrade prices follow one rule of thumb: per gold, a level gives at
+   most about 4 times less than building another piece. Spreading out
+   stays the cheaper choice early on, and a full island still has
+   something worth buying.
    ========================================================= */
 
 (function (root, factory) {
@@ -46,12 +51,22 @@
   }
 
   /* A building's stats at a level (1..4) on its chosen path: each level's
-     changes are applied on top of the ones before it. */
+     changes are applied on top of the ones before it. The result is computed
+     once per combination and shared (frozen), since it is read every frame. */
+  const levelCache = new WeakMap();
+
   function levelStats(stat, level, path) {
-    const out = { ...stat };
-    const route = path && stat.paths && stat.paths[path];
-    if (route) {
-      for (const step of route.levels.slice(0, Math.min(level, 4) - 1)) Object.assign(out, step.stats);
+    let byLevel = levelCache.get(stat);
+    if (!byLevel) levelCache.set(stat, (byLevel = new Map()));
+    const key = level + "|" + (path || "");
+    let out = byLevel.get(key);
+    if (!out) {
+      out = { ...stat };
+      const route = path && stat.paths && stat.paths[path];
+      if (route) {
+        for (const step of route.levels.slice(0, Math.min(level, 4) - 1)) Object.assign(out, step.stats);
+      }
+      byLevel.set(key, Object.freeze(out));
     }
     return out;
   }
@@ -163,8 +178,8 @@
             name: "Bateria rápida",
             summary: "Mais dano e, no nível 4, dois alvos ao mesmo tempo.",
             levels: [
-              { cost: 60, desc: "16 de dano/s", stats: { damage: 16 } },
-              { cost: 110, desc: "20 de dano/s e alcance 180", stats: { damage: 20, range: 180 } },
+              { cost: 45, desc: "16 de dano/s", stats: { damage: 16 } },
+              { cost: 75, desc: "20 de dano/s e alcance 180", stats: { damage: 20, range: 180 } },
               { cost: 200, desc: "26 de dano/s, em 2 alvos", stats: { damage: 26, targets: 2 } },
             ],
           },
@@ -194,8 +209,8 @@
             summary: "Rende cada vez mais ouro.",
             levels: [
               { cost: 60, desc: "1,5 de ouro/s", stats: { gold: 1.5 } },
-              { cost: 130, desc: "2 de ouro/s", stats: { gold: 2 } },
-              { cost: 280, desc: "3 de ouro/s", stats: { gold: 3 } },
+              { cost: 90, desc: "2 de ouro/s", stats: { gold: 2 } },
+              { cost: 200, desc: "3 de ouro/s", stats: { gold: 3 } },
             ],
           },
           B: {
@@ -224,8 +239,8 @@
             summary: "Cada vez mais vagas para botes.",
             levels: [
               { cost: 50, desc: "+3 no limite de botes", stats: { boatCap: 3 } },
-              { cost: 100, desc: "+4 no limite de botes", stats: { boatCap: 4 } },
-              { cost: 180, desc: "+5 no limite de botes", stats: { boatCap: 5 } },
+              { cost: 70, desc: "+4 no limite de botes", stats: { boatCap: 4 } },
+              { cost: 110, desc: "+5 no limite de botes", stats: { boatCap: 5 } },
             ],
           },
           B: {
@@ -255,7 +270,7 @@
             levels: [
               { cost: 120, desc: "Alcance 280", stats: { range: 280 } },
               { cost: 220, desc: "Alcance 300, e enxerga barcos na névoa", stats: { range: 300, seesCloak: true } },
-              { cost: 380, desc: "Alcance 320 e 30 de dano/s", stats: { range: 320, damage: 30 } },
+              { cost: 320, desc: "Alcance 320 e 30 de dano/s", stats: { range: 320, damage: 30 } },
             ],
           },
           B: {
@@ -263,7 +278,7 @@
             summary: "Muito mais forte contra fragatas e galeões.",
             levels: [
               { cost: 130, desc: "+50% de dano em fragatas e galeões", stats: { heavyMult: 1.5 } },
-              { cost: 240, desc: "+100% de dano neles", stats: { heavyMult: 2 } },
+              { cost: 180, desc: "+100% de dano neles", stats: { heavyMult: 2 } },
               { cost: 400, desc: "O tiro atravessa e acerta o barco de trás", stats: { pierce: 90 } },
             ],
           },

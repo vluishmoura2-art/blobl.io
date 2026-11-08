@@ -597,30 +597,59 @@ function awardKill(target, bounty) {
   return bestId;
 }
 
-/* The enemy boats within range of a point, nearest first. Cloaked frigates and
-   galleons can't be seen by cannons. */
-function boatsInRange(x, y, range, enemies, seenByCannons) {
-  const found = [];
-  for (const enemy of enemies) {
-    const cloaked = enemy.upgrades & COMBAT.upgradeFlags.cloak;
-    for (const boat of enemy.soldiers) {
-      if (seenByCannons && cloaked && boat.kind !== "soldier") continue;
-      const d = (boat.x - x) ** 2 + (boat.y - y) ** 2;
-      if (d <= range * range) found.push({ boat, d });
+/* Boats are bucketed into a grid at the start of every combat tick, so each
+   gun, reef and boat only looks at the boats around it instead of all of them. */
+const GRID_CELL = 200;
+const MAX_BOAT_SIZE = Math.max(...Object.values(COMBAT.units).map((u) => u.size));
+const PIECE_REACH = COMBAT.place.buildRange + 40; // how far from its island a building can stand
+let boatGrid = new Map();
+
+function buildBoatGrid(fighters) {
+  boatGrid = new Map();
+  for (const owner of fighters) {
+    for (const boat of owner.soldiers) {
+      const key = Math.floor(boat.x / GRID_CELL) + ":" + Math.floor(boat.y / GRID_CELL);
+      let cell = boatGrid.get(key);
+      if (!cell) boatGrid.set(key, (cell = []));
+      cell.push({ boat, owner });
     }
   }
-  return found.sort((a, b) => a.d - b.d).map((f) => f.boat);
 }
 
-function nearestBoat(x, y, range, enemies, seenByCannons) {
-  return boatsInRange(x, y, range, enemies, seenByCannons)[0] || null;
+/* The enemy boats within range of a point, nearest first. Cloaked frigates and
+   galleons can't be seen by cannons. */
+function boatsInRange(x, y, range, attacker, seenByCannons) {
+  const found = [];
+  const x0 = Math.floor((x - range) / GRID_CELL);
+  const x1 = Math.floor((x + range) / GRID_CELL);
+  const y0 = Math.floor((y - range) / GRID_CELL);
+  const y1 = Math.floor((y + range) / GRID_CELL);
+  for (let cx = x0; cx <= x1; cx++) {
+    for (let cy = y0; cy <= y1; cy++) {
+      const cell = boatGrid.get(cx + ":" + cy);
+      if (!cell) continue;
+      for (const { boat, owner } of cell) {
+        if (owner === attacker) continue;
+        if (seenByCannons && owner.upgrades & COMBAT.upgradeFlags.cloak && boat.kind !== "soldier") continue;
+        const d = (boat.x - x) ** 2 + (boat.y - y) ** 2;
+        if (d <= range * range) found.push({ boat, d });
+      }
+    }
+  }
+  if (found.length > 1) found.sort((a, b) => a.d - b.d);
+  return found.map((f) => f.boat);
+}
+
+function nearestBoat(x, y, range, attacker, seenByCannons) {
+  return boatsInRange(x, y, range, attacker, seenByCannons)[0] || null;
 }
 
 /* The nearest of everything a boat's cannons can fire at. */
-function nearestTarget(boat, range, enemies) {
-  let target = nearestBoat(boat.x, boat.y, range, enemies, false);
+function nearestTarget(boat, range, attacker, enemies) {
+  let target = nearestBoat(boat.x, boat.y, range, attacker, false);
   let best = target ? (target.x - boat.x) ** 2 + (target.y - boat.y) ** 2 : range * range;
   for (const enemy of enemies) {
+    if (Math.hypot(enemy.x - boat.x, enemy.y - boat.y) > range + PIECE_REACH) continue; // too far to matter
     for (const candidate of [...enemy.buildings, enemy]) {
       const d = (candidate.x - boat.x) ** 2 + (candidate.y - boat.y) ** 2;
       if (d <= best) {
@@ -633,7 +662,7 @@ function nearestTarget(boat, range, enemies) {
 }
 
 /* The nearest enemy piece this boat is touching. */
-function nearestContact(boat, enemies) {
+function nearestContact(boat, attacker, enemies) {
   let target = null;
   let best = Infinity;
   const consider = (candidate, size) => {
@@ -644,50 +673,51 @@ function nearestContact(boat, enemies) {
     }
   };
   for (const enemy of enemies) {
+    if (Math.hypot(enemy.x - boat.x, enemy.y - boat.y) > PIECE_REACH + boat.size) continue;
     consider(enemy, COMBAT.player.baseRadius);
     for (const bd of enemy.buildings) consider(bd, bd.size);
-    for (const other of enemy.soldiers) consider(other, other.size);
   }
+  for (const other of boatsInRange(boat.x, boat.y, boat.size + MAX_BOAT_SIZE, attacker, false)) consider(other, other.size);
   return target;
 }
 
-/* Each attacker hits one target at a time. Only unprotected, living players take
-   part, on both sides. */
 /* A gun's damage against one boat: piercing guns hit frigates and galleons harder. */
 function gunDamage(gun, boat) {
   return gun.damage * (boat.kind !== "soldier" ? gun.heavyMult || 1 : 1);
 }
 
 /* The boat right behind a target, as seen from the gun (for piercing shots). */
-function boatBehind(gunAt, target, reach, enemies, seenByCannons) {
+function boatBehind(gunAt, target, reach, attacker, seenByCannons) {
   const dx = target.x - gunAt.x;
   const dy = target.y - gunAt.y;
   return (
-    boatsInRange(target.x, target.y, reach, enemies, seenByCannons).find(
+    boatsInRange(target.x, target.y, reach, attacker, seenByCannons).find(
       (b) => b !== target && (b.x - target.x) * dx + (b.y - target.y) * dy > 0
     ) || null
   );
 }
 
 /* Cutting reefs hurt boats that touch them and slow the ones passing near. */
-function reefTick(a, enemies, dt, now) {
+function reefTick(a, dt) {
   for (const reef of a.buildings) {
     const r = reef.eff;
     if (reef.stat.role !== "reef" || (!r.thorns && !r.slowRange)) continue;
-    for (const enemy of enemies) {
-      for (const boat of enemy.soldiers) {
-        const d = Math.hypot(boat.x - reef.x, boat.y - reef.y);
-        if (r.thorns && d <= reef.size + boat.size + 3) hit(boat, a, r.thorns * dt);
-        if (r.slowRange && d <= r.slowRange) boat.reefSlowNext = Math.min(boat.reefSlowNext, r.slowMul);
-      }
+    const reach = Math.max(r.slowRange || 0, reef.size + MAX_BOAT_SIZE + 3);
+    for (const boat of boatsInRange(reef.x, reef.y, reach, a, false)) {
+      const d = Math.hypot(boat.x - reef.x, boat.y - reef.y);
+      if (r.thorns && d <= reef.size + boat.size + 3) hit(boat, a, r.thorns * dt);
+      if (r.slowRange && d <= r.slowRange) boat.reefSlowNext = Math.min(boat.reefSlowNext, r.slowMul);
     }
   }
 }
 
+/* Each attacker hits one target at a time. Only unprotected, living players take
+   part, on both sides. */
 function combatTick(dt) {
   const now = Date.now();
   const fighters = [...players.values()].filter((p) => !p.dead && !p.safe);
   for (const p of fighters) for (const boat of p.soldiers) boat.reefSlowNext = 1;
+  buildBoatGrid(fighters);
 
   for (const a of fighters) {
     const enemies = fighters.filter((b) => b !== a);
@@ -696,30 +726,32 @@ function combatTick(dt) {
       if (bd.stat.role !== "gun") continue;
       const gun = bd.eff;
       const seen = !gun.seesCloak; // a scoped long gun sees through the fog curtain
-      for (const target of boatsInRange(bd.x, bd.y, gun.range, enemies, seen).slice(0, gun.targets || 1)) {
+      for (const target of boatsInRange(bd.x, bd.y, gun.range, a, seen).slice(0, gun.targets || 1)) {
         hit(target, a, gunDamage(gun, target) * dt);
         if (gun.slowSeconds) target.slowUntil = now + gun.slowSeconds * 1000;
         if (gun.pierce) {
-          const behind = boatBehind(bd, target, gun.pierce, enemies, seen);
+          const behind = boatBehind(bd, target, gun.pierce, a, seen);
           if (behind) hit(behind, a, gunDamage(gun, behind) * dt);
         }
         if (!gun.splash) continue;
-        for (const near of boatsInRange(target.x, target.y, gun.splash, enemies, seen)) {
+        for (const near of boatsInRange(target.x, target.y, gun.splash, a, seen)) {
           if (near !== target) hit(near, a, gunDamage(gun, near) * gun.splashRate * dt);
         }
       }
     }
 
-    reefTick(a, enemies, dt, now);
+    reefTick(a, dt);
 
-    const intruder = nearestBoat(a.x, a.y, COMBAT.player.attackRange, enemies, false);
+    const intruder = nearestBoat(a.x, a.y, COMBAT.player.attackRange, a, false);
     if (intruder) hit(intruder, a, COMBAT.player.damage * dt);
 
     const cannons = a.upgrades & COMBAT.upgradeFlags.cannons;
     const crew = crewOf(a);
     for (const boat of a.soldiers) {
       const target =
-        cannons && boat.kind !== "soldier" ? nearestTarget(boat, boat.stat.range, enemies) : nearestContact(boat, enemies);
+        cannons && boat.kind !== "soldier"
+          ? nearestTarget(boat, boat.stat.range, a, enemies)
+          : nearestContact(boat, a, enemies);
       if (target) hit(target, a, boat.stat.damage * (1 + crew.damage) * dt);
     }
   }
@@ -856,6 +888,11 @@ function startServer(port = CONFIG.port) {
   };
 }
 
-module.exports = { startServer, CONFIG };
+module.exports = {
+  startServer,
+  CONFIG,
+  // the rules themselves, so test/rules-test.js can check them without a network
+  rules: { players, syncBuildings, combatTick, economyTick, boatLimit, crewOf, speedFactor },
+};
 
 if (require.main === module) startServer();

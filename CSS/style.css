@@ -543,6 +543,21 @@ label {
   }
 }
 
+/* Frame rate, only with ?fps in the address */
+#fps {
+  position: fixed;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 /* The screen edge flashes when your island takes a hit */
 #damage-edge {
   position: fixed;
