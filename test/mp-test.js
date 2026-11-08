@@ -257,14 +257,14 @@ const dockDistance = COMBAT.place.buildRange + COMBAT.buildingStats[DOCK].size;
   C.state.u = 0;
   C.state.buildings = [
     dockC,
-    { b: GUN, uid: 404, x: pb.x, y: pb.y, dir: 0 },
+    { b: GUN, uid: 404, ...polar(pc, 1, COMBAT.place.buildRange + 400) }, // far beyond C's reach
     { b: REEF, uid: 405, ...polar(pc, 3, 200) },
     { b: REEF, uid: 406, ...polar(pc, 3.02, 200) },
   ];
   await sleep(300);
   C.clearQueue();
   cNow = (await withTimeout(C.next("update"), 3000, "C update")).players.find((p) => p.id === wc.id);
-  assert(!cNow.buildings.some((b) => b.uid === 404), "a cannon on an enemy island must be refused");
+  assert(!cNow.buildings.some((b) => b.uid === 404), "a cannon out of reach must be refused");
   assert(cNow.buildings.some((b) => b.uid === 405), "a legal reef should be built");
   assert(!cNow.buildings.some((b) => b.uid === 406), "an overlapping reef must be refused");
   C.state.buildings = C.state.buildings.filter((b) => b.uid !== 404 && b.uid !== 406);
