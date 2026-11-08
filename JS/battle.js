@@ -414,7 +414,9 @@ function updateRamming(side, enemies, dt) {
   const chance = dt * 7;
 
   for (const boat of side.boats) {
-    if (Math.abs(boat.x - camera.x) > w / 2 + 60 || Math.abs(boat.y - camera.y) > h / 2 + 60) continue;
+    const halfW = w / 2 / view.scale + 60;
+    const halfH = h / 2 / view.scale + 60;
+    if (Math.abs(boat.x - camera.x) > halfW || Math.abs(boat.y - camera.y) > halfH) continue;
     if (Math.random() > chance) continue; // decide first: most frames throw no splinter at all
 
     const size = boat.stat.size;

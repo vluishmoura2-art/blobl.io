@@ -411,6 +411,13 @@ function drawSafeRing(x, y) {
 
 /* ---------- leaderboard ---------- */
 
+/* On small screens the leaderboard is folded; its title opens it. */
+window.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("leaderboard-title").addEventListener("click", () => {
+    document.getElementById("leaderboard").classList.toggle("open");
+  });
+});
+
 function setStatus(text) {
   const el = document.getElementById("connection-status");
   if (el) el.textContent = text;

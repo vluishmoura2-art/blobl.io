@@ -117,9 +117,8 @@ function placeUpgradeChoice() {
 
   const panel = document.getElementById("upgrade-choice");
   const { w, h } = viewSize();
-  const x = p.x - camera.x + w / 2;
-  const y = p.y - camera.y + h / 2;
-  const gap = p.building.size + 14;
+  const { x, y } = worldToScreen(p.x, p.y);
+  const gap = p.building.size * view.scale + 14;
   const left = Math.max(8, Math.min(w - panel.offsetWidth - 8, x - panel.offsetWidth / 2));
   // above the building when it fits, otherwise below it, so the panel never hides it
   const above = y - gap - panel.offsetHeight;

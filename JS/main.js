@@ -156,9 +156,31 @@ function distance(ax, ay, bx, by) {
   return Math.hypot(ax - bx, ay - by);
 }
 
+/* ---------- VIEW SCALE ---------- */
+/* On a small screen the map is shown from a little farther away, so the island
+   and its build ring still fit: 700 world units fit the shorter side. */
+const view = { scale: 1 };
+const VIEW_FIT = 700;
+
+function updateViewScale() {
+  const { w, h } = viewSize();
+  view.scale = clamp(Math.min(w, h) / VIEW_FIT, 0.55, 1);
+}
+
+/* Text on the map shrinks less than the map itself, so it stays readable. */
+function textScale() {
+  return Math.pow(view.scale, -0.75);
+}
+
 /* Screen (canvas) point -> world point, via the camera */
 function screenToWorld(sx, sy, w, h) {
-  return { x: sx - w / 2 + camera.x, y: sy - h / 2 + camera.y };
+  return { x: (sx - w / 2) / view.scale + camera.x, y: (sy - h / 2) / view.scale + camera.y };
+}
+
+/* World point -> screen (canvas) point */
+function worldToScreen(x, y) {
+  const { w, h } = viewSize();
+  return { x: (x - camera.x) * view.scale + w / 2, y: (y - camera.y) * view.scale + h / 2 };
 }
 
 /* ---------- RESIZE (device-pixel-ratio aware) ---------- */
@@ -167,6 +189,7 @@ function resize() {
   const rect = canvas.getBoundingClientRect();
   canvas.width = Math.round(rect.width * dpr);
   canvas.height = Math.round(rect.height * dpr);
+  updateViewScale();
 
   draw();
 }
@@ -191,6 +214,11 @@ function updateCamera(dt) {
     camera.tx += (dx / len) * CAMERA.speed * dt;
     camera.ty += (dy / len) * CAMERA.speed * dt;
   }
+
+  // the touch joystick: the farther it is pushed, the faster the camera goes
+  const joy = joystickVector();
+  camera.tx += joy.x * CAMERA.speed * dt;
+  camera.ty += joy.y * CAMERA.speed * dt;
 
   camera.tx = clamp(camera.tx, 0, MAP.width);
   camera.ty = clamp(camera.ty, 0, MAP.height);
@@ -946,10 +974,13 @@ function draw(time = performance.now()) {
   const sy = Math.round((Math.random() * 2 - 1) * FX.shake);
 
   // World space: everything below is drawn relative to the camera
+  const s = view.scale;
   ctx.save();
-  ctx.translate(w / 2 - camera.x + sx, h / 2 - camera.y + sy);
+  ctx.translate(w / 2 + sx, h / 2 + sy);
+  ctx.scale(s, s);
+  ctx.translate(-camera.x, -camera.y);
 
-  drawChart(w, h);
+  drawChart(w / s, h / s);
   drawRemotePlayers();
   drawRangeIndicators();
   drawBase();
@@ -959,7 +990,7 @@ function draw(time = performance.now()) {
   drawBattle();
   drawGhost(ghost);
   drawUpgradeHint(w, h);
-  ctx.translate(-sx, -sy);
+  ctx.translate(-sx / s, -sy / s);
   drawCrosshair(w, h);
 
   ctx.restore();
@@ -1023,13 +1054,14 @@ function drawBaseLabel(x, y, name, tagId) {
 
 /* A printed label on the chart: paper plate, ink border, ink text. */
 function drawPlate(x, y, text, color) {
+  const k = textScale();
   ctx.save();
-  ctx.font = "800 13px 'Alegreya Sans', system-ui, sans-serif";
+  ctx.font = "800 " + 13 * k + "px 'Alegreya Sans', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  const w = ctx.measureText(text).width + 16;
-  const h = 21;
+  const w = ctx.measureText(text).width + 16 * k;
+  const h = 21 * k;
   ctx.fillStyle = PAPER;
   ctx.fillRect(x - w / 2, y - h / 2, w, h);
   ctx.lineWidth = 1.5;
@@ -1202,6 +1234,7 @@ function loop(time) {
   updateBattle(dt);
   if (typeof netUpdate === "function") netUpdate(dt);
   refreshHud();
+  refreshTouchButtons();
   placeUpgradeChoice();
   draw(time);
 
@@ -1345,7 +1378,8 @@ function buildingAt(worldX, worldY, exclude) {
     if (p === exclude) continue;
 
     const d = Math.hypot(p.x - worldX, p.y - worldY);
-    const reach = p.building.size + 10;
+    // a finger needs a bigger target than a mouse pointer
+    const reach = p.building.size + (isTouchMode() ? 24 / view.scale : 10);
     if (d <= reach && d < best) {
       best = d;
       hit = p;
@@ -1355,24 +1389,91 @@ function buildingAt(worldX, worldY, exclude) {
   return hit;
 }
 
-/* Aim the ghost at the mouse (a building lifted in swap mode follows it too) */
-canvas.addEventListener("mousemove", (e) => {
+/* Canvas coordinates of a pointer event */
+function pointerOnCanvas(e) {
   const rect = canvas.getBoundingClientRect();
-  placement.mouseX = e.clientX - rect.left;
-  placement.mouseY = e.clientY - rect.top;
-});
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+/* The finger currently on the map (the joystick has its own). */
+const mapTouch = { id: null };
+let suppressClickUntil = 0;
 
 /* Swap mode: pick up a building to start the drag */
-canvas.addEventListener("mousedown", (e) => {
-  if (e.button !== 0 || actionMode !== "swap" || isEliminated()) return;
-
+function startDrag(e) {
+  if (actionMode !== "swap" || isEliminated()) return;
   const world = worldFromEvent(e);
   const hit = buildingAt(world.x, world.y);
   if (hit) {
     drag.active = true;
     drag.building = hit;
   }
+}
+
+/* Swap mode: drop the building; swap it with what is underneath */
+function dropDrag(e) {
+  const lifted = drag.building;
+  const world = worldFromEvent(e);
+  const target = buildingAt(world.x, world.y, lifted);
+  drag.active = false;
+  drag.building = null;
+
+  if (target && placement.placed.includes(lifted)) swapBuildings(lifted, target);
+  draw();
+}
+
+/* Aim the ghost at the pointer (a building lifted in swap mode follows it too) */
+canvas.addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "mouse" && e.pointerId !== mapTouch.id) return;
+  const at = pointerOnCanvas(e);
+  placement.mouseX = at.x;
+  placement.mouseY = at.y;
 });
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse") {
+    if (e.button === 0) startDrag(e);
+    return;
+  }
+
+  // touch or pen: the preview follows the finger, and lifting it acts
+  if (mapTouch.id !== null) return;
+  setTouchMode(true);
+  mapTouch.id = e.pointerId;
+  canvas.setPointerCapture(e.pointerId);
+  const at = pointerOnCanvas(e);
+  placement.mouseX = at.x;
+  placement.mouseY = at.y;
+  FX.aim = null; // the preview jumps to the finger instead of gliding there
+  startDrag(e);
+});
+
+/* Lifting a finger from the map works like a click there. Letting go over the
+   toolbar or a panel cancels instead. */
+function endMapTouch(e, cancelled) {
+  if (e.pointerId !== mapTouch.id) return;
+  mapTouch.id = null;
+  suppressClickUntil = performance.now() + 600; // the browser's own click would repeat it
+
+  const overMap = document.elementFromPoint(e.clientX, e.clientY) === canvas;
+  if (drag.active) {
+    if (overMap && !cancelled) dropDrag(e);
+    else {
+      drag.active = false;
+      drag.building = null;
+    }
+  } else if (overMap && !cancelled) {
+    const at = pointerOnCanvas(e);
+    tapAt(at.x, at.y);
+  }
+  placement.mouseX = null;
+  placement.mouseY = null;
+}
+
+canvas.addEventListener("pointerup", (e) => {
+  if (e.pointerType !== "mouse") endMapTouch(e, false);
+});
+canvas.addEventListener("pointercancel", (e) => endMapTouch(e, true));
 
 /* Exchange two buildings' spots. Each is re-resolved by its own type, so a swap
    obeys the same range and overlap rules as placing; if it can't, nothing moves. */
@@ -1399,27 +1500,23 @@ function swapBuildings(a, b) {
   if (typeof unlockAchievement === "function") unlockAchievement("flexible");
 }
 
-/* Swap mode: drop the building. Listens on the window so letting go over the
-   HUD or outside the page still ends the drag. */
+/* Swap mode with a mouse: drop the building. Listens on the window so letting
+   go over the HUD or outside the page still ends the drag. */
 window.addEventListener("mouseup", (e) => {
-  if (e.button !== 0 || !drag.active) return;
-
-  const lifted = drag.building;
-  const world = worldFromEvent(e);
-  const target = buildingAt(world.x, world.y, lifted);
-  drag.active = false;
-  drag.building = null;
-
-  if (target && placement.placed.includes(lifted)) swapBuildings(lifted, target);
-  draw();
+  if (e.button !== 0 || !drag.active || mapTouch.id !== null) return;
+  dropDrag(e);
 });
 
-/* Left-click: place a building, delete one, or order the soldiers to move */
 canvas.addEventListener("click", (e) => {
+  if (performance.now() < suppressClickUntil) return; // already handled as a tap
+  const at = pointerOnCanvas(e);
+  tapAt(at.x, at.y);
+});
+
+/* A click or a tap on the map: place a building, upgrade one, delete one, or
+   send the fleet there. */
+function tapAt(sx, sy) {
   const { w, h } = viewSize();
-  const rect = canvas.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
 
   if (isEliminated()) return; // base destroyed: no more orders
   if (closeUpgradeChoice()) return; // a click outside the panel just closes it
@@ -1450,7 +1547,7 @@ canvas.addEventListener("click", (e) => {
   }
 
   draw();
-});
+}
 
 /* Toolbar icons use the same drawing as the piece itself, so they recolor with
    the flag and always show exactly what gets built. */
@@ -1564,6 +1661,9 @@ function enterMatch() {
   hideEndScreen();
   document.getElementById("menu").classList.add("hidden");
   setPlayButton(false);
+  if (isTouchMode() && window.matchMedia("(orientation: portrait)").matches) {
+    showToast("Dica: deite o celular para ver mais do mapa");
+  }
 }
 
 const SERVER_DOWN = "Não foi possível falar com o servidor. Tente de novo em instantes.";

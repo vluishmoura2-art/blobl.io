@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" content="hightide.io: erga sua ilha, arme a costa e lance sua frota contra outros capitães, em um jogo multiplayer de navegador." />
   <title>hightide.io</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20fill='%23E1E4D7'/%3E%3Cpath%20d='M3%209c0-4%203-6%206-5s4%203%204%205-3%204-6%203-4-1-4-3z'%20fill='%23C8553D'%20stroke='%232B3A42'/%3E%3C/svg%3E" />
@@ -130,13 +130,23 @@
     <p id="upgrade-note">A escolha é definitiva. Teclas 1 e 2 escolhem, Esc fecha.</p>
   </div>
 
+  <div id="joystick" aria-hidden="true">
+    <div id="joystick-base"><div id="joystick-knob"></div></div>
+  </div>
+  <div id="touch-actions">
+    <button id="touch-cancel" class="touch-button" type="button" hidden>Cancelar</button>
+    <button id="touch-home" class="touch-button" type="button">Ilha</button>
+    <button id="touch-pvp" class="touch-button dark" type="button" hidden>PvP</button>
+  </div>
+  <div id="touch-tip" hidden></div>
+
   <div id="toasts" role="status" aria-live="polite"></div>
   <div id="fps" hidden></div>
   <div id="damage-edge" aria-hidden="true"></div>
 
   <div id="hud-right">
     <div id="leaderboard">
-      <div id="leaderboard-title">Placar</div>
+      <div id="leaderboard-title">Placar <span class="fold-mark" aria-hidden="true">▾</span></div>
       <div id="leaderboard-list"><div class="lb-row">Sem jogadores</div></div>
       <div id="connection-status">Desconectado</div>
       <div id="mp-hint">Espaço: ativar PvP</div>
@@ -203,6 +213,7 @@
   <script src="JS/net.js" defer></script>
   <script src="JS/battle.js" defer></script>
   <script src="JS/upgrades.js" defer></script>
+  <script src="JS/touch.js" defer></script>
   <script src="JS/guide.js" defer></script>
   <script src="JS/achievements.js" defer></script>
 </body>

@@ -22,7 +22,9 @@ html,
 body {
   width: 100%;
   height: 100%;
+  height: 100dvh; /* phones: the visible height, without the address bar */
   overflow: hidden;
+  overscroll-behavior: none;
   background: var(--table-top);
   color: var(--ink);
   font-family: var(--font-ui);
@@ -40,6 +42,11 @@ label {
   display: block;
   width: 100%;
   height: 100%;
+  touch-action: none; /* the game handles every touch on the map */
+}
+
+button {
+  touch-action: manipulation; /* no double-tap zoom on buttons */
 }
 
 /* A printed plate from the chart's legend: paper, with a double ink rule. */
@@ -68,7 +75,7 @@ label {
   --tool-size: clamp(40px, calc((100vw - 110px) / 9), 66px);
   position: fixed;
   left: 50%;
-  bottom: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   display: flex;
   gap: var(--tool-gap);
@@ -96,9 +103,15 @@ label {
   transition: transform 0.1s ease-out;
 }
 
-.tool-button:hover {
-  background: #fbf5e7;
-  transform: translateY(-3px);
+@media (hover: hover) {
+  .tool-button:hover {
+    background: #fbf5e7;
+    transform: translateY(-3px);
+  }
+
+  .tool-button:hover .tool-tip {
+    visibility: visible;
+  }
 }
 
 .tool-button:active {
@@ -182,7 +195,6 @@ label {
   visibility: hidden;
 }
 
-.tool-button:hover .tool-tip,
 .tool-button:focus-visible .tool-tip {
   visibility: visible;
 }
@@ -1065,6 +1077,272 @@ label {
 
 #menu-status:empty {
   display: none;
+}
+
+/* ---------- Touch controls ---------- */
+#joystick,
+#touch-actions {
+  display: none;
+}
+
+body.touch #joystick {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: min(38vw, 280px);
+  height: min(55vh, 280px);
+  display: block;
+  touch-action: none;
+}
+
+#joystick-base {
+  position: absolute;
+  left: calc(70px + env(safe-area-inset-left));
+  top: calc(100% - 80px - env(safe-area-inset-bottom));
+  width: 104px;
+  height: 104px;
+  margin: -52px 0 0 -52px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: rgba(243, 235, 217, 0.55);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+#joystick.active #joystick-base {
+  opacity: 1;
+}
+
+#joystick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.8;
+}
+
+body.touch #touch-actions {
+  position: fixed;
+  right: calc(12px + env(safe-area-inset-right));
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.touch-button {
+  min-width: 76px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 22px;
+  background: var(--paper);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.touch-button.dark {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.touch-button[hidden] {
+  display: none;
+}
+
+#touch-tip {
+  position: fixed;
+  left: 50%;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(260px, 70vw);
+  padding: 8px 10px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  font-size: 14px;
+  line-height: 1.25;
+  pointer-events: none;
+}
+
+#touch-tip[hidden] {
+  display: none;
+}
+
+.fold-mark {
+  display: none;
+  margin-left: 6px;
+  font-size: 14px;
+}
+
+/* ---------- Tablets and small windows ---------- */
+@media (max-width: 1023px) {
+  #hud-right {
+    width: 196px;
+  }
+
+  #guide-list li:not(.current),
+  #guide-keys {
+    display: none;
+  }
+
+  #toasts {
+    width: min(420px, 56vw);
+  }
+}
+
+/* ---------- Touch toolbar: on the right, scrolling sideways ---------- */
+body.touch #toolbar {
+  --tool-size: 46px;
+  left: auto;
+  right: calc(12px + env(safe-area-inset-right));
+  transform: none;
+  max-width: calc(100vw - min(38vw, 280px) - 24px);
+  padding-top: 8px; /* room for the raised selected button */
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+body.touch #toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+body.touch .tool-key,
+body.touch .tool-tip,
+body.touch #mp-hint {
+  display: none;
+}
+
+/* ---------- Phones (short or narrow screens) ---------- */
+@media (max-height: 520px), (max-width: 700px) {
+  #hud-left {
+    top: 10px;
+    left: calc(10px + env(safe-area-inset-left));
+    gap: 6px;
+    width: 200px;
+  }
+
+  #power-box {
+    padding: 4px 10px 4px 7px;
+  }
+
+  #power-coin {
+    width: 22px;
+    height: 22px;
+  }
+
+  #power-value {
+    font-size: 19px;
+  }
+
+  #island-hp {
+    width: 170px;
+    padding: 3px 8px;
+  }
+
+  #fleet {
+    padding: 2px 8px;
+  }
+
+  #guide {
+    padding: 5px 8px;
+  }
+
+  #guide-title {
+    font-size: 16px;
+  }
+
+  #hud-right {
+    top: 10px;
+    right: calc(10px + env(safe-area-inset-right));
+    width: 180px;
+  }
+
+  #leaderboard-title {
+    cursor: pointer;
+    pointer-events: auto;
+  }
+
+  .fold-mark {
+    display: inline;
+  }
+
+  #leaderboard:not(.open) #leaderboard-list,
+  #leaderboard:not(.open) #connection-status,
+  #leaderboard:not(.open) #mp-hint {
+    display: none;
+  }
+
+  #toasts {
+    top: 10px;
+  }
+
+  .toast {
+    font-size: 14px;
+  }
+
+  #upgrade-choice {
+    width: min(380px, 94vw);
+  }
+
+  .choice canvas {
+    width: 60px;
+    height: 60px;
+  }
+}
+
+/* Phones held upright: the toolbar takes the whole width, the joystick sits above it */
+@media (orientation: portrait) and (max-width: 700px) {
+  body.touch #toolbar {
+    left: 8px;
+    right: 8px;
+    max-width: none;
+  }
+
+  body.touch #joystick {
+    bottom: 70px;
+  }
+
+  body.touch #touch-actions {
+    bottom: calc(150px + env(safe-area-inset-bottom));
+  }
+
+  #hud-right {
+    width: 150px;
+  }
+}
+
+/* Short screens: the menu scrolls instead of being cut */
+@media (max-height: 520px) {
+  #menu {
+    justify-content: flex-start;
+    overflow-y: auto;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  #menu-title {
+    font-size: 46px;
+  }
+
+  #menu-subtitle,
+  #menu-rose {
+    display: none;
+  }
+
+  #menu-card {
+    gap: 10px;
+    padding: 12px 14px 14px;
+  }
+
+  #menu-play {
+    font-size: 24px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

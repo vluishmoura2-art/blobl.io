@@ -38,6 +38,8 @@ npm test
 | Ativar o PvP antes do fim da proteção | `Espaço` |
 | Voltar à sua ilha | `H` |
 
+No celular ou tablet: o joystick no canto inferior esquerdo move a câmera, um toque no mapa funciona como o clique (a prévia segue o dedo e a peça é construída ao soltar), os botões **PvP**, **Ilha** e **Cancelar** substituem as teclas, e um toque longo em um botão da barra mostra a dica dele.
+
 ## Regras e equilíbrio
 
 Preços, vida, dano e velocidades ficam todos em [`shared/combat.js`](shared/combat.js). O servidor guarda o ouro e confere cada jogada usando esse mesmo arquivo, então basta editá-lo para mudar o equilíbrio.
@@ -53,6 +55,7 @@ Preços, vida, dano e velocidades ficam todos em [`shared/combat.js`](shared/com
 | `JS/net.js` | Conexão com o servidor, outros jogadores e placar |
 | `JS/battle.js` | Mira, tiros, explosões, movimento suave e avisos na tela |
 | `JS/guide.js` | Primeiros passos do jogador |
+| `JS/touch.js` | Joystick, botões e dicas para telas de toque |
 | `JS/upgrades.js` | Evoluções das construções e painel de escolha do caminho |
 | `JS/achievements.js` | Conquistas, salvas apenas no navegador do jogador |
 | `shared/combat.js` | Regras e valores do jogo, usados pelo cliente e pelo servidor |
