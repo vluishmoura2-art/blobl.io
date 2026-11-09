@@ -1278,6 +1278,25 @@ body.touch #mp-hint {
     display: none;
   }
 
+  /* The achievements tab sits under the leaderboard instead of on the right
+     edge, where the touch buttons are. */
+  #achievements:not(.visible) {
+    display: none;
+  }
+
+  #achievements-hint {
+    position: static;
+    align-self: flex-end;
+    transform: none;
+    writing-mode: horizontal-tb;
+    padding: 6px 12px;
+    font-size: 16px;
+  }
+
+  #achievements.visible ~ #achievements-hint {
+    display: none;
+  }
+
   #toasts {
     top: 10px;
   }

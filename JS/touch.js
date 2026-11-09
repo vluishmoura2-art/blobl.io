@@ -25,6 +25,16 @@ function isTouchMode() {
   return document.body.classList.contains("touch");
 }
 
+/* Keeps a finger's events on this element even when it slides off it. Some
+   browsers refuse for some pointers; the controls still work without it. */
+function capturePointer(el, id) {
+  try {
+    el.setPointerCapture(id);
+  } catch {
+    /* no capture: events still arrive while the finger stays on the element */
+  }
+}
+
 /* Camera direction from the joystick, each axis -1..1 (0 when idle). */
 function joystickVector() {
   return { x: joystick.x, y: joystick.y };
@@ -42,7 +52,7 @@ function bindJoystick() {
     if (joystick.id !== null) return;
     setTouchMode(true);
     joystick.id = e.pointerId;
-    zone.setPointerCapture(e.pointerId);
+    capturePointer(zone, e.pointerId);
 
     // the joystick appears where the thumb lands
     const rect = zone.getBoundingClientRect();

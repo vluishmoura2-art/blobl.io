@@ -1440,7 +1440,7 @@ canvas.addEventListener("pointerdown", (e) => {
   if (mapTouch.id !== null) return;
   setTouchMode(true);
   mapTouch.id = e.pointerId;
-  canvas.setPointerCapture(e.pointerId);
+  capturePointer(canvas, e.pointerId);
   const at = pointerOnCanvas(e);
   placement.mouseX = at.x;
   placement.mouseY = at.y;
@@ -1770,6 +1770,8 @@ function bindMenu() {
 
 /* ---------- BOOT ---------- */
 window.addEventListener("resize", resize);
+// also catches phone rotation and the address bar showing or hiding
+if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
 if (document.fonts) document.fonts.ready.then(buildChart); // redraw labels in their real font
 
 window.addEventListener("DOMContentLoaded", () => {
