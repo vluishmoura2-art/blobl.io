@@ -53,7 +53,6 @@ button {
 #power-box,
 #island-hp,
 #fleet,
-#guide,
 #leaderboard,
 #achievements,
 #achievements-hint,
@@ -228,8 +227,8 @@ button {
   color: var(--ink-soft);
 }
 
-/* The next step's button, marked by the first-steps list */
-.tool-button.hint {
+/* What the tutorial's balloon is pointing at */
+.tut-target {
   outline: 2px dashed var(--ink);
   outline-offset: 3px;
 }
@@ -373,72 +372,141 @@ button {
   user-select: none;
 }
 
-/* ---------- First steps ---------- */
-#guide {
-  flex: 0 1 auto;
-  min-height: 0;
-  width: 100%;
+/* ---------- Tutorial balloon ---------- */
+#tutorial {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  width: min(330px, calc(100vw - 20px));
+  padding: 9px 12px 10px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+  box-shadow: 0 6px 18px rgba(43, 58, 66, 0.25);
+  font-size: 15px;
+  line-height: 1.3;
+  --arrow: 50%;
+}
+
+#tutorial[hidden] {
   display: none;
-  flex-direction: column;
-  padding: 8px 10px;
-  overflow: hidden;
-  font-size: 14px;
-  line-height: 1.2;
-  user-select: none;
 }
 
-#guide.visible {
-  display: flex;
-  pointer-events: auto;
+/* the arrow: an ink triangle with a paper one inside */
+#tutorial::before,
+#tutorial::after {
+  content: "";
+  position: absolute;
+  display: none;
+  border: solid transparent;
 }
 
-#guide-title {
-  flex: none;
+#tutorial[data-arrow="bottom"]::before,
+#tutorial[data-arrow="bottom"]::after,
+#tutorial[data-arrow="top"]::before,
+#tutorial[data-arrow="top"]::after,
+#tutorial[data-arrow="right"]::before,
+#tutorial[data-arrow="right"]::after {
+  display: block;
+}
+
+#tutorial[data-arrow="bottom"]::before {
+  top: calc(100% + 3px);
+  left: calc(var(--arrow) - 11px);
+  border-width: 11px 11px 0;
+  border-top-color: var(--ink);
+}
+
+#tutorial[data-arrow="bottom"]::after {
+  top: calc(100% + 1px);
+  left: calc(var(--arrow) - 9px);
+  border-width: 9px 9px 0;
+  border-top-color: var(--paper);
+}
+
+#tutorial[data-arrow="top"]::before {
+  bottom: calc(100% + 3px);
+  left: calc(var(--arrow) - 11px);
+  border-width: 0 11px 11px;
+  border-bottom-color: var(--ink);
+}
+
+#tutorial[data-arrow="top"]::after {
+  bottom: calc(100% + 1px);
+  left: calc(var(--arrow) - 9px);
+  border-width: 0 9px 9px;
+  border-bottom-color: var(--paper);
+}
+
+#tutorial[data-arrow="right"]::before {
+  left: calc(100% + 3px);
+  top: calc(var(--arrow) - 11px);
+  border-width: 11px 0 11px 11px;
+  border-left-color: var(--ink);
+}
+
+#tutorial[data-arrow="right"]::after {
+  left: calc(100% + 1px);
+  top: calc(var(--arrow) - 9px);
+  border-width: 9px 0 9px 9px;
+  border-left-color: var(--paper);
+}
+
+#tutorial-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+#tutorial-skip {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+#tutorial-skip:hover,
+#tutorial-skip.vhover {
+  color: var(--ink);
+}
+
+#tutorial-title {
+  margin: 2px 0 4px;
   font-family: var(--font-title);
-  font-size: 19px;
+  font-size: 23px;
+  font-weight: 400;
+  line-height: 1.1;
   border-bottom: 1.5px solid var(--ink);
   padding-bottom: 3px;
 }
 
-#guide-close {
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  font-size: 19px;
-  line-height: 1;
-  cursor: pointer;
+#tutorial-body p + p,
+#tutorial-body ul + p {
+  margin-top: 5px;
 }
 
-#guide-close:hover {
-  background: var(--paper-deep);
-}
-
-#guide-list {
-  min-height: 0;
-  overflow-y: auto;
-  margin: 6px 0 0;
-  padding-left: 18px;
+#tutorial-body ul {
+  margin: 5px 0 0 18px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  color: var(--ink-soft);
+  gap: 3px;
 }
 
-#guide-list .current {
-  color: var(--ink);
-  font-weight: 800;
-}
-
-#guide-list .ticked {
-  text-decoration: line-through;
-}
-
-#guide-keys {
-  flex: none;
+#tutorial-foot {
   margin-top: 7px;
   padding-top: 5px;
   border-top: 1px solid var(--ink-soft);
@@ -446,9 +514,51 @@ button {
   color: var(--ink-soft);
 }
 
-@media (max-width: 800px), (max-height: 460px) {
-  #guide.visible {
-    display: none;
+#tutorial-foot[hidden] {
+  display: none;
+}
+
+#tutorial-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+#tutorial-wait {
+  margin-right: auto;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+#tutorial-wait[hidden],
+#tutorial-ok[hidden] {
+  display: none;
+}
+
+#tutorial-ok {
+  padding: 5px 14px 6px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+@media (max-height: 520px), (max-width: 700px) {
+  #tutorial {
+    width: min(290px, calc(100vw - 20px));
+    padding: 7px 10px 8px;
+    font-size: 14px;
+  }
+
+  #tutorial-title {
+    font-size: 20px;
   }
 }
 
@@ -1268,6 +1378,23 @@ button {
   background: transparent;
 }
 
+.settings-button {
+  align-self: flex-start;
+  padding: 6px 14px 7px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  background: transparent;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.settings-button:hover,
+.settings-button.vhover {
+  background: var(--paper-deep);
+}
+
 #settings-done {
   color: var(--paper);
   background: var(--ink);
@@ -1589,11 +1716,6 @@ body.touch #touch-actions {
     width: 196px;
   }
 
-  #guide-list li:not(.current),
-  #guide-keys {
-    display: none;
-  }
-
   #toasts {
     width: min(420px, 56vw);
   }
@@ -1652,14 +1774,6 @@ body.touch #mp-hint {
 
   #fleet {
     padding: 2px 8px;
-  }
-
-  #guide {
-    padding: 5px 8px;
-  }
-
-  #guide-title {
-    font-size: 16px;
   }
 
   #hud-right {

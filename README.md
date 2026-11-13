@@ -54,10 +54,13 @@ Preços, vida, dano e velocidades ficam todos em [`shared/combat.js`](shared/com
 | `JS/main.js` | Regras no cliente, carta náutica e controles |
 | `JS/net.js` | Conexão com o servidor, outros jogadores e placar |
 | `JS/battle.js` | Mira, tiros, explosões, movimento suave e avisos na tela |
-| `JS/guide.js` | Primeiros passos do jogador |
+| `JS/tutorial.js` | Tutorial guiado em balões |
+| `JS/settings.js` | Configurações e mira presa com sensi |
+| `JS/chat.js` | Chat geral, silenciar jogadores |
 | `JS/touch.js` | Joystick, botões e dicas para telas de toque |
 | `JS/upgrades.js` | Evoluções das construções e painel de escolha do caminho |
 | `JS/achievements.js` | Conquistas, salvas apenas no navegador do jogador |
 | `shared/combat.js` | Regras e valores do jogo, usados pelo cliente e pelo servidor |
+| `shared/chat-filter.js` | Filtro de palavrões do chat, aplicado no servidor |
 | `server.js` | Servidor WebSocket, validação das jogadas, combate e arquivos do jogo |
 | `test/mp-test.js` | Teste de integração do multiplayer |

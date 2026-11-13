@@ -104,15 +104,6 @@
     </div>
 
     <div id="fleet" aria-label="Frota"></div>
-
-    <div id="guide">
-      <div id="guide-title">
-        <span>Primeiros passos</span>
-        <button id="guide-close" type="button" aria-label="Fechar primeiros passos">&times;</button>
-      </div>
-      <ol id="guide-list"></ol>
-      <p id="guide-keys">W A S D: mover a câmera · H: voltar à ilha</p>
-    </div>
   </div>
 
   <div id="upgrade-choice" role="dialog" aria-labelledby="upgrade-title" hidden>
@@ -159,6 +150,20 @@
   </div>
 
   <div id="toasts" role="status" aria-live="polite"></div>
+
+  <div id="tutorial" role="dialog" aria-labelledby="tutorial-title" aria-describedby="tutorial-body" hidden>
+    <div id="tutorial-head">
+      <span id="tutorial-count"></span>
+      <button id="tutorial-skip" type="button">Pular tutorial</button>
+    </div>
+    <h2 id="tutorial-title"></h2>
+    <div id="tutorial-body"></div>
+    <p id="tutorial-foot"></p>
+    <div id="tutorial-actions">
+      <span id="tutorial-wait">Faça isso para continuar</span>
+      <button id="tutorial-ok" type="button">Entendi</button>
+    </div>
+  </div>
   <div id="fps" hidden></div>
   <div id="damage-edge" aria-hidden="true"></div>
 
@@ -262,6 +267,11 @@
       </section>
 
       <section class="settings-group">
+        <h3>Tutorial</h3>
+        <button id="settings-tutorial" class="settings-button" type="button">Rever o tutorial</button>
+      </section>
+
+      <section class="settings-group">
         <h3>Câmera</h3>
         <label class="settings-range">
           <span class="settings-name">Velocidade da câmera</span>
@@ -290,7 +300,7 @@
   <script src="JS/touch.js" defer></script>
   <script src="JS/settings.js" defer></script>
   <script src="JS/chat.js" defer></script>
-  <script src="JS/guide.js" defer></script>
+  <script src="JS/tutorial.js" defer></script>
   <script src="JS/achievements.js" defer></script>
 </body>
 </html>
