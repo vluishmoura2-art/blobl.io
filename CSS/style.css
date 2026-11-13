@@ -1155,8 +1155,29 @@ button {
 }
 
 #menu-name:focus,
-#menu-tag:focus {
+#menu-tag:focus,
+#menu-lang:focus {
   box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+
+/* Language: a compact row under the menu's buttons */
+#menu-lang-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#menu-lang {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  font-size: 16px;
+  font-weight: 700;
+  background: #fbf5e7;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
 }
 
 #menu-name::placeholder {
@@ -1359,7 +1380,7 @@ button {
 }
 
 .cl-version:first-child .cl-number::after {
-  content: "atual";
+  content: attr(data-current);
   margin-left: 8px;
   padding: 1px 6px;
   font-size: 11px;

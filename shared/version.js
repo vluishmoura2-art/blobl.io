@@ -11,5 +11,5 @@
   if (typeof module === "object" && module.exports) module.exports = factory();
   else root.GAME_VERSION = factory();
 })(this, function () {
-  return "1.3";
+  return "1.4";
 });

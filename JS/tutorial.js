@@ -21,120 +21,62 @@ const TUTORIAL_KEY = "hightide.tutorial.v1";
 const byDesign = (...designs) => () => placement.placed.some((p) => designs.includes(p.building.design));
 const tool = (id) => () => document.getElementById(id);
 
-/* Words that change between the mouse and a touch screen. */
-const touchy = (mouse, touch) => () => (isTouchMode() ? touch : mouse);
+/* A step's text, by key: "tut.mill" is the title, "tut.mill.text" the text with
+   a mouse and "tut.mill.touch" the text on a touch screen. */
+const said = (key) => () => t(key + (isTouchMode() && TEXTS.pt[key + ".touch"] ? ".touch" : ".text"));
 
 const TUTORIAL_STEPS = [
   {
-    title: "Moinhos",
-    text: touchy(
-      "Ouro paga tudo, e o moinho faz ouro todo segundo. Clique no Moinho (tecla 3) e depois perto da sua ilha.",
-      "Ouro paga tudo, e o moinho faz ouro todo segundo. Toque no Moinho e depois perto da sua ilha."
-    ),
-    foot: touchy("W A S D movem a câmera · H volta à ilha", "O joystick move a câmera · Ilha volta para casa"),
+    key: "tut.mill",
+    text: said("tut.mill"),
+    foot: () => t(isTouchMode() ? "tut.keysTouch" : "tut.keys"),
     target: tool("generator-button"),
     done: () => countGenerators() > 0,
   },
+  { key: "tut.hut", text: said("tut.hut"), target: tool("house-button"), done: byDesign("house") },
+  { key: "tut.gun", text: said("tut.gun"), target: tool("turret-button"), done: byDesign("turret", "sniper") },
+  { key: "tut.reef", text: said("tut.reef"), target: tool("wall-button"), done: byDesign("wall") },
+  { key: "tut.dock", text: said("tut.dock"), target: tool("tent-button"), done: byDesign("tent") },
   {
-    title: "Cabanas",
-    text: touchy(
-      "Cada cabana aumenta em 2 o limite de botes da sua frota. Construa uma (tecla 4).",
-      "Cada cabana aumenta em 2 o limite de botes da sua frota. Construa uma."
-    ),
-    target: tool("house-button"),
-    done: byDesign("house"),
-  },
-  {
-    title: "Canhões",
-    text: touchy(
-      "Canhões atiram nos barcos inimigos que chegam perto. O Canhão longo (tecla 5) alcança mais longe e bate mais forte, mas custa mais. Construa um canhão (tecla 2).",
-      "Canhões atiram nos barcos inimigos que chegam perto. O Canhão longo alcança mais longe e bate mais forte, mas custa mais. Construa um canhão."
-    ),
-    target: tool("turret-button"),
-    done: byDesign("turret", "sniper"),
-  },
-  {
-    title: "Recifes",
-    text: touchy(
-      "Recifes bloqueiam os barcos inimigos. Ponha alguns na frente dos canhões, para os barcos pararem debaixo do fogo (tecla 1).",
-      "Recifes bloqueiam os barcos inimigos. Ponha alguns na frente dos canhões, para os barcos pararem debaixo do fogo."
-    ),
-    target: tool("wall-button"),
-    done: byDesign("wall"),
-  },
-  {
-    title: "Cais",
-    text: touchy(
-      "O cais produz os botes que atacam as outras ilhas. Junte 120 de ouro e construa um (tecla 7).",
-      "O cais produz os botes que atacam as outras ilhas. Junte 120 de ouro e construa um."
-    ),
-    target: tool("tent-button"),
-    done: byDesign("tent"),
-  },
-  {
-    title: "Mandar a frota",
-    text: touchy(
-      "Quando os botes surgirem, clique no mapa para mandá-los até lá. Sua ilha nasce protegida: aperte Espaço para atacar, sabendo que a partir daí também podem atacar você.",
-      "Quando os botes surgirem, toque no mapa para mandá-los até lá. Sua ilha nasce protegida: toque em PvP para atacar, sabendo que a partir daí também podem atacar você."
-    ),
+    key: "tut.fleet",
+    text: said("tut.fleet"),
     target: () => null,
     done: () => state.orderedFleet,
     explain: true,
   },
+  { key: "tut.arsenal", text: said("tut.arsenal"), target: tool("armory-button"), explain: true },
   {
-    title: "Arsenal",
-    text: touchy(
-      "O Arsenal (tecla 6) pesquisa melhorias para a frota: casco reforçado, velas novas, canhões de bordo e cortina de névoa. Com a ferramenta do Arsenal, clique nele para comprar a próxima.",
-      "O Arsenal pesquisa melhorias para a frota: casco reforçado, velas novas, canhões de bordo e cortina de névoa. Com a ferramenta do Arsenal, toque nele para comprar a próxima."
-    ),
-    target: tool("armory-button"),
-    explain: true,
-  },
-  {
-    title: "Como montar a base",
+    key: "tut.layout",
     html: () =>
-      "<p>Comece sempre pelos moinhos: sem ouro não há base. Depois escolha um estilo:</p>" +
-      "<ul>" +
-      "<li><b>Fortaleza:</b> nenhum cais, muitos canhões e recifes. Você não ataca, mas fica difícil de afundar e junta ouro.</li>" +
-      "<li><b>Equilibrada:</b> mais canhões do que cais. Defende bem e ainda manda botes.</li>" +
-      "</ul>",
+      "<p>" + t("tut.layout.intro") + "</p>" +
+      "<ul><li>" + t("tut.layout.fort") + "</li><li>" + t("tut.layout.mixed") + "</li></ul>",
     target: () => null,
     explain: true,
   },
   {
-    title: "Evoluções",
-    text: touchy(
-      "Para evoluir, escolha a ferramenta de uma construção e clique numa igual que já está no mapa. Na primeira evolução você escolhe um de dois caminhos, e a escolha é definitiva.",
-      "Para evoluir, escolha a ferramenta de uma construção e toque numa igual que já está no mapa. Na primeira evolução você escolhe um de dois caminhos, e a escolha é definitiva."
-    ),
+    key: "tut.upgrade",
+    text: said("tut.upgrade"),
     target: () => null,
     done: () => placement.placed.some((p) => (p.level || 1) > 1 || (p.tier || 1) > 1),
     explain: true,
   },
+  { key: "tut.ach", text: said("tut.ach"), target: tool("achievements-hint"), explain: true },
   {
-    title: "Conquistas",
-    text: () => "Jogando, você ganha conquistas. Cada uma vira uma insígnia para usar embaixo do seu nome, escolhida no menu.",
-    target: tool("achievements-hint"),
-    explain: true,
-  },
-  {
-    title: "Chat e regras",
-    html: () =>
-      "<p>" +
-      (isTouchMode() ? "O botão Chat abre a conversa com todos." : "Enter abre a conversa com todos.") +
-      " Para o mar ser bom para todo mundo:</p>" +
-      "<ul>" +
-      "<li>trate os outros capitães com respeito;</li>" +
-      "<li>nada de ofensas, palavrões ou preconceito;</li>" +
-      "<li>não passe dados pessoais, como endereço, telefone ou senhas.</li>" +
-      "</ul>" +
-      "<p>Se alguém incomodar, " + (isTouchMode() ? "toque" : "clique") + " no nome dele no chat para silenciar.</p>",
+    key: "tut.chat",
+    html: () => {
+      const touch = isTouchMode();
+      return (
+        "<p>" + t(touch ? "tut.chat.openTouch" : "tut.chat.open") + " " + t("tut.chat.intro") + "</p>" +
+        "<ul><li>" + t("tut.chat.rule1") + "</li><li>" + t("tut.chat.rule2") + "</li><li>" + t("tut.chat.rule3") + "</li></ul>" +
+        "<p>" + t(touch ? "tut.chat.muteTouch" : "tut.chat.mute") + "</p>"
+      );
+    },
     target: () => {
       if (!settings.chat) return null;
       return document.getElementById(isTouchMode() ? "touch-chat" : "chat-hint");
     },
     explain: true,
-    finish: "Bons ventos!",
+    finish: "tut.finish",
   },
 ];
 
@@ -179,7 +121,7 @@ function hideBalloon() {
 function nextTutorialStep() {
   if (tutorial.step >= TUTORIAL_STEPS.length - 1) {
     finishTutorial();
-    showToast("Tutorial concluído. Bons ventos, capitão!", "good");
+    showToast(t("tut.done"), "good");
     return;
   }
   tutorial.step += 1;
@@ -206,8 +148,8 @@ function fillBalloon(step, i) {
   if (step.html) body.innerHTML = step.html();
   else body.textContent = step.text();
 
-  document.getElementById("tutorial-count").textContent = "Passo " + (i + 1) + " de " + TUTORIAL_STEPS.length;
-  document.getElementById("tutorial-title").textContent = step.title;
+  document.getElementById("tutorial-count").textContent = t("tut.count", { i: i + 1, n: TUTORIAL_STEPS.length });
+  document.getElementById("tutorial-title").textContent = t(step.key);
 
   const foot = document.getElementById("tutorial-foot");
   foot.textContent = step.foot ? step.foot() : "";
@@ -215,7 +157,7 @@ function fillBalloon(step, i) {
 
   const ok = document.getElementById("tutorial-ok");
   ok.hidden = !step.explain;
-  ok.textContent = step.finish || "Entendi";
+  ok.textContent = t(step.finish || "tut.ok");
   document.getElementById("tutorial-wait").hidden = Boolean(step.explain);
 }
 
@@ -295,12 +237,14 @@ function updateTutorial() {
   placeBalloon(target);
 }
 
+onLanguageChange(() => (tutorial.shown = -1)); // redraw the balloon in the new language
+
 window.addEventListener("DOMContentLoaded", () => {
   loadTutorial();
   document.getElementById("tutorial-ok").addEventListener("click", nextTutorialStep);
   document.getElementById("tutorial-skip").addEventListener("click", () => {
     finishTutorial();
-    showToast("Tutorial pulado. Dá para rever nas configurações.");
+    showToast(t("tut.skipped"));
   });
   document.getElementById("settings-tutorial").addEventListener("click", () => {
     restartTutorial();

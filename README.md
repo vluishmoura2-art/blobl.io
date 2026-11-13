@@ -54,6 +54,7 @@ Preços, vida, dano e velocidades ficam todos em [`shared/combat.js`](shared/com
 | `JS/main.js` | Regras no cliente, carta náutica e controles |
 | `JS/net.js` | Conexão com o servidor, outros jogadores e placar |
 | `JS/battle.js` | Mira, tiros, explosões, movimento suave e avisos na tela |
+| `JS/i18n.js` | Idiomas (português, inglês e alemão) e seletor no menu |
 | `JS/tutorial.js` | Tutorial guiado em balões |
 | `JS/settings.js` | Configurações e mira presa com sensi |
 | `JS/chat.js` | Chat geral, silenciar jogadores |

@@ -25,6 +25,9 @@ const WORDS = [
   "idiota", "idiotas", "babaca", "corno", "cornos", "vadia", "vadias",
   "fuck", "shit", "bitch", "cunt", "dick", "asshole", "wtf", "stfu",
   "nigga", "niggas", "nigger", "niggers", "fag", "faggot",
+  // German
+  "arsch", "fotze", "fotzen", "hure", "huren", "schlampe", "schlampen", "spast", "spasti", "wichser",
+  "scheisse", "scheiss", "kacke", "missgeburt", "drecksau", "penner", "vollidiot",
 ];
 
 // the start of a word
@@ -33,6 +36,8 @@ const STEMS = [
   "arromb", "cuzã", "desgrac", "filhodaput", "filhadaput", "vagabund", "retardad",
   "otari", "imbecil", "babac", "cornud", "viadinh", "punhet", "xerec", "siriric",
   "fuck", "shit", "bitch", "motherf", "whore", "slut",
+  // German
+  "arschl", "arschg", "fick", "hurens", "wichs", "scheiss", "schlamp", "missgeb", "drecks",
 ];
 
 const LEET = { 0: "o", 1: "i", 3: "e", 4: "a", 5: "s", 7: "t", 8: "b", 9: "g", "@": "a", $: "s", "!": "i", "|": "i" };
@@ -44,7 +49,7 @@ function stripAccents(text) {
 /* The plain letters a word spells, with its disguises undone. */
 function plain(word) {
   // punctuation around the word isn't part of it ("porra!" is "porra")
-  const core = stripAccents(word.toLowerCase()).replace(/^[^a-z0-9@$]+|[^a-z0-9@$]+$/g, "");
+  const core = stripAccents(word.toLowerCase().replace(/ß/g, "ss")).replace(/^[^a-z0-9@$]+|[^a-z0-9@$]+$/g, "");
   let out = "";
   for (const ch of core) {
     const letter = LEET[ch] || ch;

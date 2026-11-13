@@ -644,8 +644,8 @@ function handleBattleEvents(events) {
     if (event.t === "base" && event.owner === net.id) battle.sunkBy = event.killer;
 
     if (event.t === "base" && event.owner !== net.id) {
-      const name = event.name || "Um capitão";
-      showToast(event.killer === net.id ? "Você afundou a ilha de " + name + "!" : name + " naufragou", event.killer === net.id ? "good" : "");
+      const name = event.name || t("battle.someone");
+      showToast(event.killer === net.id ? t("battle.youSank", { name }) : t("battle.sank", { name }), event.killer === net.id ? "good" : "");
     }
   }
 }
@@ -679,7 +679,7 @@ function notifyIslandHit() {
   }
 
   const now = performance.now();
-  if (now - battle.lastAttackNotice > 10000) showToast("Sua ilha está sob ataque!", "bad");
+  if (now - battle.lastAttackNotice > 10000) showToast(t("battle.underAttack"), "bad");
   battle.lastAttackNotice = now;
 }
 

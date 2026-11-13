@@ -58,38 +58,38 @@
       <span class="tool-tip"><span class="tool-name"></span><span class="tool-desc"></span><span class="tool-stats"></span></span>
     </button>
     <span class="tool-divider" aria-hidden="true"></span>
-    <button id="swap-button" class="tool-button" type="button" aria-pressed="false" aria-label="Trocar de lugar">
+    <button id="swap-button" class="tool-button" type="button" aria-pressed="false" aria-label="Trocar de lugar" data-i18n-attr="aria-label:tool.swap">
       <svg class="tool-glyph" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4.5 9h11M12.6 5.4 16.2 9l-3.6 3.6" />
         <path d="M19.5 15h-11M11.4 11.4 7.8 15l3.6 3.6" />
       </svg>
-      <span class="tool-tip"><span class="tool-name">Trocar de lugar</span><span class="tool-desc">Arraste uma construção até outra para trocá-las.</span></span>
+      <span class="tool-tip"><span class="tool-name" data-i18n="tool.swap">Trocar de lugar</span><span class="tool-desc" data-i18n="tool.swapDesc">Arraste uma construção até outra para trocá-las.</span></span>
     </button>
-    <button id="delete-button" class="tool-button" type="button" aria-pressed="false" aria-label="Remover">
+    <button id="delete-button" class="tool-button" type="button" aria-pressed="false" aria-label="Remover" data-i18n-attr="aria-label:tool.delete">
       <svg class="tool-glyph" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 6.5h16" />
         <path d="M9 6.5V4.2h6v2.3" />
         <path d="M6.6 6.5 7.6 20h8.8l1-13.5" />
         <path d="M10.2 10v6.4M13.8 10v6.4" />
       </svg>
-      <span class="tool-tip"><span class="tool-name">Remover</span><span class="tool-desc">Clique em uma construção para removê-la e receber metade do preço.</span></span>
+      <span class="tool-tip"><span class="tool-name" data-i18n="tool.delete">Remover</span><span class="tool-desc" data-i18n="tool.deleteDesc">Clique em uma construção para removê-la e receber metade do preço.</span></span>
     </button>
   </div>
 
   <div id="hud-left">
     <div id="hud-top">
-    <div id="power-box" role="status" aria-label="Ouro">
+    <div id="power-box" role="status" aria-label="Ouro" data-i18n-attr="aria-label:hud.gold">
       <svg id="power-coin" viewBox="0 0 30 30" aria-hidden="true">
         <circle cx="15" cy="15" r="13" fill="#D9A62E" stroke="#2B3A42" stroke-width="2" />
         <circle cx="15" cy="15" r="8.500" fill="none" stroke="#2B3A42" stroke-width="1.500" />
       </svg>
       <span id="power-text">
-        <span id="power-label">Ouro</span>
+        <span id="power-label" data-i18n="hud.gold">Ouro</span>
         <span id="power-value">200</span>
       </span>
       <span id="power-rate">+0/s</span>
     </div>
-    <button id="settings-open" type="button" aria-label="Configurações" title="Configurações">
+    <button id="settings-open" type="button" aria-label="Configurações" title="Configurações" data-i18n-attr="aria-label:settings.title; title:settings.title">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M10.3 3h3.4l.5 2.4 1.7.9 2.3-.9 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.9-1.7.9-.5 2.4h-3.4l-.5-2.4-1.7-.9-2.3.9-1.7-2.9 1.8-1.6v-1.9L3.9 8.3l1.7-2.9 2.3.9 1.7-.9z" />
         <circle cx="12" cy="12" r="3" />
@@ -97,13 +97,13 @@
     </button>
     </div>
 
-    <div id="island-hp" aria-label="Vida da ilha">
-      <span id="island-hp-label">Ilha</span>
+    <div id="island-hp" aria-label="Vida da ilha" data-i18n-attr="aria-label:hud.islandHp">
+      <span id="island-hp-label" data-i18n="hud.island">Ilha</span>
       <span id="island-hp-bar"><span id="island-hp-fill"></span></span>
       <span id="island-hp-value">500</span>
     </div>
 
-    <div id="fleet" aria-label="Frota"></div>
+    <div id="fleet" aria-label="Frota" data-i18n-attr="aria-label:hud.fleet"></div>
   </div>
 
   <div id="upgrade-choice" role="dialog" aria-labelledby="upgrade-title" hidden>
@@ -126,16 +126,16 @@
         <span class="choice-cost"></span>
       </button>
     </div>
-    <p id="upgrade-note">A escolha é definitiva. Teclas 1 e 2 escolhem, Esc fecha.</p>
+    <p id="upgrade-note" data-i18n="upgrade.note">A escolha é definitiva. Teclas 1 e 2 escolhem, Esc fecha.</p>
   </div>
 
   <div id="joystick" aria-hidden="true">
     <div id="joystick-base"><div id="joystick-knob"></div></div>
   </div>
   <div id="touch-actions">
-    <button id="touch-cancel" class="touch-button" type="button" hidden>Cancelar</button>
-    <button id="touch-chat" class="touch-button" type="button">Chat <span id="touch-chat-unread" hidden></span></button>
-    <button id="touch-home" class="touch-button" type="button">Ilha</button>
+    <button id="touch-cancel" class="touch-button" type="button" hidden data-i18n="touch.cancel">Cancelar</button>
+    <button id="touch-chat" class="touch-button" type="button"><span data-i18n="touch.chat">Chat</span> <span id="touch-chat-unread" hidden></span></button>
+    <button id="touch-home" class="touch-button" type="button" data-i18n="hud.island">Ilha</button>
     <button id="touch-pvp" class="touch-button dark" type="button" hidden>PvP</button>
   </div>
   <div id="touch-tip" hidden></div>
@@ -143,10 +143,10 @@
   <div id="chat" aria-label="Chat">
     <div id="chat-log" role="log" aria-live="polite"></div>
     <form id="chat-form" hidden>
-      <input id="chat-input" type="text" autocomplete="off" spellcheck="false" enterkeyhint="send" placeholder="Mensagem para todos" aria-label="Mensagem do chat" />
+      <input id="chat-input" type="text" autocomplete="off" spellcheck="false" enterkeyhint="send" placeholder="Mensagem para todos" aria-label="Mensagem do chat" data-i18n-attr="placeholder:chat.placeholder; aria-label:chat.label" />
       <span id="chat-count" aria-hidden="true">0/120</span>
     </form>
-    <p id="chat-hint">Enter: conversar · clique num nome para silenciar</p>
+    <p id="chat-hint" data-i18n="chat.hint">Enter: conversar · clique num nome para silenciar</p>
   </div>
 
   <div id="toasts" role="status" aria-live="polite"></div>
@@ -154,13 +154,13 @@
   <div id="tutorial" role="dialog" aria-labelledby="tutorial-title" aria-describedby="tutorial-body" hidden>
     <div id="tutorial-head">
       <span id="tutorial-count"></span>
-      <button id="tutorial-skip" type="button">Pular tutorial</button>
+      <button id="tutorial-skip" type="button" data-i18n="tut.skip">Pular tutorial</button>
     </div>
     <h2 id="tutorial-title"></h2>
     <div id="tutorial-body"></div>
     <p id="tutorial-foot"></p>
     <div id="tutorial-actions">
-      <span id="tutorial-wait">Faça isso para continuar</span>
+      <span id="tutorial-wait" data-i18n="tut.wait">Faça isso para continuar</span>
       <button id="tutorial-ok" type="button">Entendi</button>
     </div>
   </div>
@@ -169,35 +169,35 @@
 
   <div id="hud-right">
     <div id="leaderboard">
-      <div id="leaderboard-title">Placar <span class="fold-mark" aria-hidden="true">▾</span></div>
-      <div id="leaderboard-list"><div class="lb-row">Sem jogadores</div></div>
-      <div id="connection-status">Desconectado</div>
-      <div id="mp-hint">Espaço: ativar PvP</div>
+      <div id="leaderboard-title"><span data-i18n="lb.title">Placar</span> <span class="fold-mark" aria-hidden="true">▾</span></div>
+      <div id="leaderboard-list"><div class="lb-row" data-i18n="lb.empty">Sem jogadores</div></div>
+      <div id="connection-status" data-i18n="net.disconnected">Desconectado</div>
+      <div id="mp-hint" data-i18n="lb.pvpHint">Espaço: ativar PvP</div>
       <div id="alone">
-        <p>Aguardando outros capitães. Enquanto isso, fortaleça sua ilha.</p>
-        <button id="invite" type="button">Copiar convite</button>
+        <p data-i18n="lb.alone">Aguardando outros capitães. Enquanto isso, fortaleça sua ilha.</p>
+        <button id="invite" type="button" data-i18n="lb.invite">Copiar convite</button>
       </div>
     </div>
 
-    <div id="achievements" aria-label="Conquistas">
+    <div id="achievements" aria-label="Conquistas" data-i18n-attr="aria-label:ach.title">
       <div id="achievements-title">
-        <span>Conquistas</span>
-        <button id="achievements-close" type="button" aria-label="Fechar conquistas">&times;</button>
+        <span data-i18n="ach.title">Conquistas</span>
+        <button id="achievements-close" type="button" aria-label="Fechar conquistas" data-i18n-attr="aria-label:ach.close">&times;</button>
       </div>
       <div id="achievements-viewport">
         <div id="achievements-track"></div>
       </div>
     </div>
 
-    <button id="achievements-hint" type="button" aria-expanded="false">Conquistas</button>
+    <button id="achievements-hint" type="button" aria-expanded="false" data-i18n="ach.title">Conquistas</button>
   </div>
 
   <div id="eliminated">
-    <div id="eliminated-title">Naufragou</div>
-    <div id="eliminated-sub">Sua ilha foi destruída.</div>
+    <div id="eliminated-title" data-i18n="end.sunk">Naufragou</div>
+    <div id="eliminated-sub" data-i18n="end.destroyedShort">Sua ilha foi destruída.</div>
     <div id="end-actions">
-      <button id="end-again" type="button">Zarpar de novo</button>
-      <button id="end-menu" type="button">Voltar ao menu</button>
+      <button id="end-again" type="button" data-i18n="end.again">Zarpar de novo</button>
+      <button id="end-menu" type="button" data-i18n="end.menu">Voltar ao menu</button>
     </div>
   </div>
 
@@ -209,27 +209,35 @@
     </svg>
     <div id="menu-heading">
       <h1 id="menu-title">hightide.io</h1>
-      <p id="menu-subtitle">Erga sua ilha. Arme a costa. Lance sua frota.</p>
+      <p id="menu-subtitle" data-i18n="menu.subtitle">Erga sua ilha. Arme a costa. Lance sua frota.</p>
     </div>
     <div id="menu-card">
       <label class="menu-field">
-        <span class="menu-label">Nome do capitão</span>
-        <input id="menu-name" type="text" maxlength="16" placeholder="Capitão" spellcheck="false" autocomplete="off" />
+        <span class="menu-label" data-i18n="menu.name">Nome do capitão</span>
+        <input id="menu-name" type="text" maxlength="16" placeholder="Capitão" data-i18n-attr="placeholder:menu.defaultName" spellcheck="false" autocomplete="off" />
       </label>
       <div class="menu-field">
-        <span class="menu-label">Bandeira</span>
+        <span class="menu-label" data-i18n="menu.flag">Bandeira</span>
         <div id="menu-flags"></div>
         <input id="menu-color" type="hidden" value="#C8553D" />
       </div>
       <label class="menu-field">
-        <span class="menu-label">Insígnia</span>
+        <span class="menu-label" data-i18n="menu.tag">Insígnia</span>
         <select id="menu-tag"></select>
       </label>
-      <button id="menu-play" type="button">Zarpar</button>
+      <button id="menu-play" type="button" data-i18n="menu.play">Zarpar</button>
       <div id="menu-more">
-        <button id="menu-settings" class="menu-secondary" type="button">Configurações</button>
-        <button id="menu-news" class="menu-secondary" type="button">Novidades</button>
+        <button id="menu-settings" class="menu-secondary" type="button" data-i18n="settings.title">Configurações</button>
+        <button id="menu-news" class="menu-secondary" type="button" data-i18n="menu.news">Novidades</button>
       </div>
+      <label id="menu-lang-field">
+        <span class="menu-label" data-i18n="menu.language">Idioma</span>
+        <select id="menu-lang">
+          <option value="pt">Brasil (São Paulo)</option>
+          <option value="en">Inglês (EUA)</option>
+          <option value="de">Alemão (Frankfurt)</option>
+        </select>
+      </label>
       <p id="menu-status" role="alert"></p>
     </div>
     <p id="menu-version"></p>
@@ -238,55 +246,55 @@
   <div id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
     <div id="settings-card">
       <div id="settings-head">
-        <h2 id="settings-title">Configurações</h2>
-        <button id="settings-close" type="button" aria-label="Fechar configurações">&times;</button>
+        <h2 id="settings-title" data-i18n="settings.title">Configurações</h2>
+        <button id="settings-close" type="button" aria-label="Fechar configurações" data-i18n-attr="aria-label:settings.close">&times;</button>
       </div>
 
       <section class="settings-group mouse-only">
-        <h3>Mira</h3>
+        <h3 data-i18n="settings.aim">Mira</h3>
         <label class="settings-toggle">
           <input id="set-aimlock" type="checkbox" />
-          <span>Mira presa</span>
+          <span data-i18n="settings.aimLock">Mira presa</span>
         </label>
-        <p class="settings-note">Clique no mapa para prender o mouse: a mira do jogo anda conforme a sensi e, na borda da tela, move o mapa. Esc solta o mouse.</p>
+        <p class="settings-note" data-i18n="settings.aimNote">Clique no mapa para prender o mouse: a mira do jogo anda conforme a sensi e, na borda da tela, move o mapa. Esc solta o mouse.</p>
         <label class="settings-range">
-          <span class="settings-name">Sensi da mira</span>
+          <span class="settings-name" data-i18n="settings.sensi">Sensi da mira</span>
           <input id="set-sensi" type="range" min="0.2" max="3" step="0.05" />
           <output id="set-sensi-value" for="set-sensi"></output>
         </label>
         <label class="settings-range">
-          <span class="settings-name">Tamanho da mira</span>
+          <span class="settings-name" data-i18n="settings.aimSize">Tamanho da mira</span>
           <input id="set-aimsize" type="range" min="0.6" max="2" step="0.1" />
           <output id="set-aimsize-value" for="set-aimsize"></output>
         </label>
       </section>
 
       <section class="settings-group">
-        <h3>Chat</h3>
+        <h3 data-i18n="settings.chat">Chat</h3>
         <label class="settings-toggle">
           <input id="set-chat" type="checkbox" />
-          <span>Mostrar o chat</span>
+          <span data-i18n="settings.showChat">Mostrar o chat</span>
         </label>
-        <p class="settings-note">Desligado, você não vê nem manda mensagens.</p>
+        <p class="settings-note" data-i18n="settings.chatNote">Desligado, você não vê nem manda mensagens.</p>
       </section>
 
       <section class="settings-group">
-        <h3>Tutorial</h3>
-        <button id="settings-tutorial" class="settings-button" type="button">Rever o tutorial</button>
+        <h3 data-i18n="settings.tutorial">Tutorial</h3>
+        <button id="settings-tutorial" class="settings-button" type="button" data-i18n="settings.replay">Rever o tutorial</button>
       </section>
 
       <section class="settings-group">
-        <h3>Câmera</h3>
+        <h3 data-i18n="settings.camera">Câmera</h3>
         <label class="settings-range">
-          <span class="settings-name">Velocidade da câmera</span>
+          <span class="settings-name" data-i18n="settings.cameraSpeed">Velocidade da câmera</span>
           <input id="set-camera" type="range" min="0.5" max="2" step="0.1" />
           <output id="set-camera-value" for="set-camera"></output>
         </label>
       </section>
 
       <div id="settings-actions">
-        <button id="settings-reset" type="button">Restaurar padrão</button>
-        <button id="settings-done" type="button">Pronto</button>
+        <button id="settings-reset" type="button" data-i18n="settings.reset">Restaurar padrão</button>
+        <button id="settings-done" type="button" data-i18n="settings.done">Pronto</button>
       </div>
     </div>
   </div>
@@ -294,12 +302,12 @@
   <div id="changelog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="changelog-title" hidden>
     <div id="changelog-card" class="dialog-card">
       <div class="dialog-head">
-        <h2 id="changelog-title" class="dialog-title">Novidades</h2>
-        <button id="changelog-close" class="dialog-close" type="button" aria-label="Fechar novidades">&times;</button>
+        <h2 id="changelog-title" class="dialog-title" data-i18n="news.title">Novidades</h2>
+        <button id="changelog-close" class="dialog-close" type="button" aria-label="Fechar novidades" data-i18n-attr="aria-label:news.close">&times;</button>
       </div>
       <div id="changelog-list"></div>
       <div id="changelog-actions">
-        <button id="changelog-done" type="button">Fechar</button>
+        <button id="changelog-done" type="button" data-i18n="common.close">Fechar</button>
       </div>
     </div>
   </div>
@@ -309,6 +317,7 @@
   </svg>
 
   <script src="JS/art.js" defer></script>
+  <script src="JS/i18n.js" defer></script>
   <script src="shared/combat.js" defer></script>
   <script src="shared/version.js" defer></script>
   <script src="JS/main.js" defer></script>

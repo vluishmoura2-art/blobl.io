@@ -69,7 +69,7 @@ function joinMatch(onJoined, onFailed) {
   };
   joinTimer = setTimeout(giveUp, JOIN_TIMEOUT);
 
-  netWs.onopen = () => setStatus("Conectado, aguardando a ilha...");
+  netWs.onopen = () => setStatus(t("net.waiting"));
   netWs.onmessage = (ev) => netMessage(ev.data);
   netWs.onclose = () => {
     if (!netHadSession) {
@@ -78,7 +78,7 @@ function joinMatch(onJoined, onFailed) {
     }
     netWs = null;
     net.online = false;
-    setStatus("Desconectado");
+    setStatus(t("net.disconnected"));
     if (!net.dead) showConnectionLost();
   };
 }
@@ -161,7 +161,7 @@ function reconcileSelf(me) {
   // "Passive": the safe-zone timer ran out on its own (space was never pressed)
   if (wasSafe && !me.safe && !me.pvp) {
     unlockAchievement("passive");
-    showToast("Fim da proteção: agora sua ilha pode ser atacada", "bad");
+    showToast(t("net.protectionEnd"), "bad");
   }
 
   // kill count relayed by the server drives the kill-milestone achievements
@@ -255,19 +255,19 @@ function showEliminated() {
   const seconds = Math.round((performance.now() - state.joinedAt) / 1000);
   const killer = net.players.get(battle.sunkBy);
   const minutes = Math.floor(seconds / 60);
-  const time = minutes > 0 ? minutes + " min " + (seconds % 60) + " s" : seconds + " s";
-  const targets = state.kills === 1 ? "1 alvo" : state.kills + " alvos";
+  const time = minutes > 0 ? t("end.minutes", { m: minutes, s: seconds % 60 }) : t("end.seconds", { s: seconds });
+  const targets = state.kills === 1 ? t("end.target1") : t("end.targets", { n: state.kills });
 
   showEndScreen(
-    "Naufragou",
-    (killer ? "Sua ilha foi afundada por " + killer.name + ". " : "Sua ilha foi destruída. ") +
-      "Você resistiu por " + time + " e destruiu " + targets + "."
+    t("end.sunk"),
+    (killer ? t("end.sunkBy", { name: killer.name }) : t("end.destroyed")) +
+      t("end.lasted", { time, targets })
   );
   draw();
 }
 
 function showConnectionLost() {
-  showEndScreen("Conexão perdida", "A partida terminou porque a ligação com o servidor caiu.");
+  showEndScreen(t("end.lost"), t("end.lostText"));
 }
 
 /* ---------- outgoing state (10 Hz) ---------- */
@@ -313,7 +313,7 @@ function onSpaceForPvp() {
   const wasSafe = net.mySafe;
   net.mySafe = false;
   netSend({ type: "pvp" });
-  if (wasSafe) showToast("PvP ativo: agora você pode atacar e ser atacado", "bad");
+  if (wasSafe) showToast(t("net.pvpOn"), "bad");
   if (typeof addShake === "function") addShake(2.5);
   if (typeof burst === "function") burst(PLAYER.x, PLAYER.y, PROFILE.color, 16, 150);
   if (typeof unlockAchievement === "function") unlockAchievement("pvp");
@@ -331,9 +331,9 @@ function drawRemotePlayers() {
       // our own safe-zone / PvP indicator
       if (net.mySafe) {
         drawSafeRing(PLAYER.x, PLAYER.y);
-        drawPlate(PLAYER.x, PLAYER.y - PLACE.startSize - 40, "Protegido: " + Math.ceil(net.mySafeRemaining / 1000) + " s", SAFE_COLOR);
+        drawPlate(PLAYER.x, PLAYER.y - PLACE.startSize - 40, t("plate.safe", { s: Math.ceil(net.mySafeRemaining / 1000) }), SAFE_COLOR);
       } else if (net.myPvp) {
-        drawPlate(PLAYER.x, PLAYER.y - PLACE.startSize - 40, "PvP ativo", "#B23A2E");
+        drawPlate(PLAYER.x, PLAYER.y - PLACE.startSize - 40, t("plate.pvp"), "#B23A2E");
       }
       continue;
     }
@@ -421,6 +421,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+onLanguageChange(refreshLeaderboard);
+
 function setStatus(text) {
   const el = document.getElementById("connection-status");
   if (el) el.textContent = text;
@@ -449,13 +451,13 @@ function refreshLeaderboard() {
     })
     .join("");
 
-  list.innerHTML = rows || '<div class="lb-row">Sem jogadores</div>';
+  list.innerHTML = rows || '<div class="lb-row">' + escapeHtml(t("lb.empty")) + "</div>";
 
   const others = [...net.players.values()].some((p) => p.id !== net.id && !p.dead);
   document.getElementById("alone").classList.toggle("visible", net.online && !others);
 
   const n = net.players.size;
-  setStatus(net.online ? n + (n === 1 ? " capitão online" : " capitães online") : "Desconectado");
+  setStatus(net.online ? t(n === 1 ? "lb.online1" : "lb.online", { n }) : t("net.disconnected"));
 }
 
 function escapeHtml(s) {

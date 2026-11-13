@@ -112,7 +112,7 @@ function unlockAchievement(id) {
   achievements.unlocked.add(id);
   saveAchievements();
   markAchievementRowDone(id);
-  showToast("Conquista: " + getAchievementName(id), "good");
+  showToast(t("ach.toast", { name: getAchievementName(id) }), "good");
 
   if (typeof burst === "function" && typeof PLAYER === "object" && PLAYER) {
     burst(PLAYER.x, PLAYER.y - PLACE.startSize, PROFILE.color, 16, 150);
@@ -244,8 +244,8 @@ function populateTagMenu() {
 
   const unlocked = ACHIEVEMENTS.filter((a) => isAchievementUnlocked(a.id));
   let html = unlocked.length
-    ? '<option value="">Sem insígnia</option>'
-    : '<option value="">Conquiste uma jogando</option>';
+    ? '<option value="">' + escapeAchievementText(t("menu.noTag")) + "</option>"
+    : '<option value="">' + escapeAchievementText(t("menu.earnTag")) + "</option>";
   for (const a of unlocked) {
     html += '<option value="' + a.id + '">' + escapeAchievementText(a.name) + "</option>";
   }
@@ -256,6 +256,11 @@ function populateTagMenu() {
   select.value = current;
   setAchievementTag(current || null);
 }
+
+onLanguageChange(() => {
+  renderAchievements();
+  populateTagMenu();
+});
 
 /* ---------- panel ---------- */
 

@@ -32,7 +32,7 @@ function nextLevelOf(p, path) {
 function buyLevel(p, path) {
   const next = nextLevelOf(p, path);
   if (!next) {
-    denyFx("Esta construção já está no nível máximo");
+    denyFx(t("deny.buildingMax"));
     return false;
   }
   if (!canAffordCost(next.cost)) {
@@ -48,7 +48,7 @@ function buyLevel(p, path) {
   state.lastSpendAt = performance.now();
   refreshPowerUI();
   purchaseFx(p.x, p.y);
-  showToast(p.building.name + ": " + p.building.paths[path].name + ", nível " + p.level, "good");
+  showToast(t("upgrade.done", { name: p.building.name, path: p.building.paths[path].name, n: p.level }), "good");
   return true;
 }
 
@@ -74,7 +74,7 @@ function paintChoicePreview(canvas, building, path) {
 
 function openUpgradeChoice(p) {
   const panel = document.getElementById("upgrade-choice");
-  document.getElementById("upgrade-title").textContent = p.building.name + ": escolha a evolução";
+  document.getElementById("upgrade-title").textContent = t("upgrade.title", { name: p.building.name });
 
   for (const card of panel.querySelectorAll(".choice")) {
     const path = card.dataset.path;
@@ -83,8 +83,8 @@ function openUpgradeChoice(p) {
     paintChoicePreview(card.querySelector("canvas"), p.building, path);
     card.querySelector(".choice-name").textContent = route.name;
     card.querySelector(".choice-summary").textContent = route.summary;
-    card.querySelector(".choice-next").textContent = "Nível 2: " + next.desc;
-    card.querySelector(".choice-cost").textContent = next.cost + " de ouro";
+    card.querySelector(".choice-next").textContent = t("upgrade.next", { desc: next.desc });
+    card.querySelector(".choice-cost").textContent = t("tool.gold", { n: next.cost });
     card.classList.toggle("unavailable", !canAffordCost(next.cost));
   }
 

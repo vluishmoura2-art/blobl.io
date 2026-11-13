@@ -60,7 +60,8 @@ const UNIT_STATS = COMBAT.units;
 const TANK_CAP = COMBAT.boatLimits.tank;
 const SIEGE_CAP = COMBAT.boatLimits.siege;
 
-const BOAT_NAMES = { soldier: "botes", tank: "fragatas", siege: "galeões" };
+/* The boats a dock tier builds, in the current language. */
+const boatNames = (unit) => t("boats." + unit);
 
 function hasUpgrade(key) {
   return (state.upgrades & UPGRADES[key]) !== 0;
@@ -304,7 +305,7 @@ function placeBuilding(screenX, screenY, w, h) {
 
   const building = BUILDINGS[placement.active];
   if (limitReached(building)) {
-    denyFx("Limite atingido: máximo de " + building.limit + " (" + building.name + ")");
+    denyFx(t("deny.limit", { n: building.limit, name: building.name }));
     return;
   }
   if (!canAfford(building)) {
@@ -316,7 +317,7 @@ function placeBuilding(screenX, screenY, w, h) {
   const pos = resolvePlacement(building, world.x, world.y);
 
   if (!placementValid(pos.x, pos.y, building.size)) {
-    denyFx("Não cabe aqui: já tem uma construção nesse lugar");
+    denyFx(t("deny.noRoom"));
     return;
   }
 
@@ -354,7 +355,7 @@ function denyFx(reason) {
 }
 
 function missingGold(cost) {
-  return "Ouro insuficiente: faltam " + Math.ceil(cost - state.power);
+  return t("deny.gold", { n: Math.ceil(cost - state.power) });
 }
 
 /* With the Tent tool selected, clicking an existing tent buys its next tier:
@@ -363,7 +364,7 @@ function upgradeTent(p) {
   if (!TENT_TIERS) return;
   const next = TENT_TIERS[p.tier + 1];
   if (!next) {
-    denyFx("Este cais já está no nível máximo");
+    denyFx(t("deny.dockMax"));
     return;
   }
   if (!canAffordCost(next.cost)) {
@@ -372,7 +373,7 @@ function upgradeTent(p) {
   }
   p.tier += 1;
   p.invested = (p.invested || p.building.cost) + next.cost;
-  showToast(next.name + " pronto: produz " + BOAT_NAMES[next.unit], "good");
+  showToast(t("toast.dockReady", { name: next.name, boats: boatNames(next.unit) }), "good");
   state.power -= next.cost;
   state.lastSpendAt = performance.now();
   refreshPowerUI();
@@ -384,7 +385,7 @@ function upgradeTent(p) {
 function researchArmory(p) {
   const next = (COMBAT.armoryResearch || []).find((r) => !hasUpgrade(r.key));
   if (!next) {
-    denyFx("Todas as pesquisas já foram feitas");
+    denyFx(t("deny.allResearch"));
     return;
   }
   if (!canAffordCost(next.cost)) {
@@ -427,7 +428,7 @@ function refreshPowerUI() {
     const full = limitReached(building);
     button.classList.toggle("unavailable", full || !canAfford(building));
     const cost = button.querySelector(".tool-cost");
-    const label = full ? "máx." : String(building.cost);
+    const label = full ? t("tool.max") : String(building.cost);
     if (cost.textContent !== label) cost.textContent = label;
   }
 }
@@ -441,14 +442,14 @@ function goldIncome() {
 
 /* What the player needs to read at a glance: income and fleet limits. */
 function refreshHud() {
-  const rate = "+" + goldIncome().toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "/s";
+  const rate = "+" + goldIncome().toLocaleString(locale(), { maximumFractionDigits: 1 }) + "/s";
   const rateEl = document.getElementById("power-rate");
   if (rateEl.textContent !== rate) rateEl.textContent = rate;
 
-  const parts = ["Botes " + countUnits("soldier") + "/" + soldierLimit()];
+  const parts = [t("fleet.soldier") + " " + countUnits("soldier") + "/" + soldierLimit()];
   const tier = placement.placed.reduce((top, p) => Math.max(top, p.tier || 0), 0);
-  if (tier >= 3 || countUnits("tank") > 0) parts.push("Fragatas " + countUnits("tank") + "/" + TANK_CAP);
-  if (tier >= 4 || countUnits("siege") > 0) parts.push("Galeões " + countUnits("siege") + "/" + SIEGE_CAP);
+  if (tier >= 3 || countUnits("tank") > 0) parts.push(t("fleet.tank") + " " + countUnits("tank") + "/" + TANK_CAP);
+  if (tier >= 4 || countUnits("siege") > 0) parts.push(t("fleet.siege") + " " + countUnits("siege") + "/" + SIEGE_CAP);
   const fleet = parts.join(" · ");
   const fleetEl = document.getElementById("fleet");
   if (fleetEl.textContent !== fleet) fleetEl.textContent = fleet;
@@ -599,7 +600,7 @@ function updateSoldiers(dt) {
 /* Left-click order: send every unit to the clicked world point */
 function commandSoldiers(worldX, worldY) {
   if (soldiers.length === 0) {
-    showToast("Você ainda não tem barcos: construa um cais");
+    showToast(t("toast.noBoats"));
     return;
   }
   FX.orders.push({ x: worldX, y: worldY, life: 1 });
@@ -1193,23 +1194,23 @@ function drawUpgradeHint(w, h) {
   let cost = null;
   if (hit.building.design === "tent") {
     const next = TENT_TIERS[(hit.tier || 1) + 1];
-    label = next ? next.name : "Nível máximo";
+    label = next ? next.name : t("hint.maxLevel");
     cost = next ? next.cost : null;
   } else if (hit.building.design === "armory") {
     const next = COMBAT.armoryResearch.find((r) => !hasUpgrade(r.key));
-    label = next ? next.name : "Tudo pesquisado";
+    label = next ? next.name : t("hint.allResearch");
     cost = next ? next.cost : null;
   } else if (pieceLevel(hit) === 1) {
-    label = "Clique para escolher a evolução";
+    label = t("hint.choose");
   } else {
     const next = nextLevelOf(hit, hit.path);
-    label = next ? hit.building.paths[hit.path].name + ", nível " + (pieceLevel(hit) + 1) : "Nível máximo";
+    label = next ? t("hint.pathLevel", { path: hit.building.paths[hit.path].name, n: pieceLevel(hit) + 1 }) : t("hint.maxLevel");
     cost = next ? next.cost : null;
   }
 
   const y = hit.y - hit.building.size - 18;
   if (cost === null) drawPlate(hit.x, y, label);
-  else drawPlate(hit.x, y, label + " · " + cost + " de ouro", canAffordCost(cost) ? INK : "#B23A2E");
+  else drawPlate(hit.x, y, label + " · " + t("tool.gold", { n: cost }), canAffordCost(cost) ? INK : "#B23A2E");
 }
 
 /* ---------- LOOP ---------- */
@@ -1495,7 +1496,7 @@ function swapBuildings(a, b) {
     distance(aPos.x, aPos.y, bPos.x, bPos.y) > a.building.size + b.building.size;
 
   if (!fits) {
-    denyFx("Essas construções não cabem trocadas");
+    denyFx(t("deny.swap"));
     return;
   }
 
@@ -1575,22 +1576,38 @@ function paintToolIcons() {
   }
 }
 
+/* The tip and the spoken name of a building's button, in the current language. */
+function labelToolButton(button, building) {
+  const stats = [t("tool.gold", { n: building.cost }), t("tool.hp", { n: building.health || 0 })];
+  if (building.range) stats.push(t("tool.range", { n: building.range }));
+  if (building.limit) stats.push(t("tool.limit", { n: building.limit }));
+  button.querySelector(".tool-name").textContent = building.name;
+  const paths = building.paths;
+  button.querySelector(".tool-desc").textContent =
+    building.desc + (paths ? t("tool.evolves", { a: paths.A.name, b: paths.B.name }) : "");
+  button.querySelector(".tool-stats").textContent = stats.join(" · ");
+  button.setAttribute("aria-label", building.name + ", " + stats.join(", "));
+}
+
+onLanguageChange(() => {
+  for (const tool of TOOL_BUTTONS) {
+    const button = document.getElementById(tool.id);
+    if (button) labelToolButton(button, BUILDINGS[tool.building]);
+  }
+  refreshPowerUI();
+  if (!gameStarted) setPlayButton(document.getElementById("menu-play").disabled);
+  [...document.getElementById("menu-flags").children].forEach((flag, i) =>
+    flag.setAttribute("aria-label", t("menu.flagN", { n: i + 1 }))
+  );
+});
+
 function initToolButtons() {
   for (const tool of TOOL_BUTTONS) {
     const button = document.getElementById(tool.id);
     if (!button) continue;
 
-    const building = BUILDINGS[tool.building];
-    const stats = [building.cost + " de ouro", (building.health || 0) + " de vida"];
-    if (building.range) stats.push(building.range + " de alcance");
-    if (building.limit) stats.push("máximo " + building.limit);
-    button.querySelector(".tool-cost").textContent = building.cost;
-    button.querySelector(".tool-name").textContent = building.name;
-    const paths = building.paths;
-    button.querySelector(".tool-desc").textContent =
-      building.desc + (paths ? " Evolui como " + paths.A.name + " ou " + paths.B.name + "." : "");
-    button.querySelector(".tool-stats").textContent = stats.join(" · ");
-    button.setAttribute("aria-label", building.name + ", " + stats.join(", "));
+    button.querySelector(".tool-cost").textContent = BUILDINGS[tool.building].cost;
+    labelToolButton(button, BUILDINGS[tool.building]);
     button.addEventListener("click", () => selectBuilding(tool.building));
   }
 
@@ -1658,7 +1675,7 @@ function resetMatch() {
 function setPlayButton(busy) {
   const play = document.getElementById("menu-play");
   play.disabled = busy;
-  play.textContent = busy ? "Conectando..." : "Zarpar";
+  play.textContent = busy ? t("menu.connecting") : t("menu.play");
 }
 
 function hideEndScreen() {
@@ -1671,17 +1688,16 @@ function enterMatch() {
   document.getElementById("menu").classList.add("hidden");
   setPlayButton(false);
   if (isTouchMode() && window.matchMedia("(orientation: portrait)").matches) {
-    showToast("Dica: deite o celular para ver mais do mapa");
+    showToast(t("toast.rotate"));
   }
 }
 
-const SERVER_DOWN = "Não foi possível falar com o servidor. Tente de novo em instantes.";
 
 /* The menu stays up until the server has welcomed the player. */
 function startGame() {
   if (gameStarted || document.getElementById("menu-play").disabled) return;
 
-  PROFILE.name = document.getElementById("menu-name").value.trim() || "Capitão";
+  PROFILE.name = document.getElementById("menu-name").value.trim() || t("menu.defaultName");
   PROFILE.tag = document.getElementById("menu-tag").value || null;
   setPlayerColor(document.getElementById("menu-color").value);
 
@@ -1689,7 +1705,7 @@ function startGame() {
   setPlayButton(true);
   joinMatch(enterMatch, () => {
     setPlayButton(false);
-    document.getElementById("menu-status").textContent = SERVER_DOWN;
+    document.getElementById("menu-status").textContent = t("menu.serverDown");
   });
 }
 
@@ -1697,7 +1713,7 @@ function showEndScreen(title, text) {
   document.getElementById("eliminated-title").textContent = title;
   document.getElementById("eliminated-sub").textContent = text;
   document.getElementById("end-again").disabled = false;
-  document.getElementById("end-again").textContent = "Zarpar de novo";
+  document.getElementById("end-again").textContent = t("end.again");
   document.getElementById("eliminated").classList.add("show");
   document.getElementById("end-again").focus();
 }
@@ -1705,11 +1721,11 @@ function showEndScreen(title, text) {
 function playAgain() {
   const again = document.getElementById("end-again");
   again.disabled = true;
-  again.textContent = "Conectando...";
+  again.textContent = t("menu.connecting");
   joinMatch(enterMatch, () => {
     again.disabled = false;
-    again.textContent = "Tentar de novo";
-    document.getElementById("eliminated-sub").textContent = SERVER_DOWN;
+    again.textContent = t("menu.retry");
+    document.getElementById("eliminated-sub").textContent = t("menu.serverDown");
   });
 }
 
@@ -1733,9 +1749,9 @@ function bindInvite() {
   document.getElementById("invite").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(location.href);
-      showToast("Link copiado: envie para um amigo", "good");
+      showToast(t("toast.copied"), "good");
     } catch {
-      showToast("Envie este link: " + location.href);
+      showToast(t("toast.sendLink", { url: location.href }));
     }
   });
 }
@@ -1752,7 +1768,7 @@ function bindFlagPicker() {
     flag.type = "button";
     flag.className = "flag";
     flag.style.setProperty("--flag", color);
-    flag.setAttribute("aria-label", "Bandeira " + (i + 1));
+    flag.setAttribute("aria-label", t("menu.flagN", { n: i + 1 }));
     flag.setAttribute("aria-pressed", String(i === 0));
     flag.addEventListener("click", () => {
       input.value = color;

@@ -109,7 +109,7 @@ function nameButton(id, name, color) {
   el.textContent = name;
   if (!you) {
     el.type = "button";
-    el.title = "Silenciar " + name;
+    el.title = t("chat.muteTitle", { name });
     el.addEventListener("click", () => toggleMute(id, name));
   }
   return el;
@@ -152,12 +152,12 @@ function addChatNotice(text, action) {
 function toggleMute(id, name) {
   if (chat.muted.has(id)) {
     chat.muted.delete(id);
-    addChatNotice("Você voltou a ouvir " + name + ".");
+    addChatNotice(t("chat.unmuted", { name }));
     return;
   }
   chat.muted.add(id);
   for (const old of document.querySelectorAll('#chat-log [data-from="' + CSS.escape(id) + '"]')) old.remove();
-  addChatNotice("Você silenciou " + name + ".", { label: "Desfazer", run: () => toggleMute(id, name) });
+  addChatNotice(t("chat.muted", { name }), { label: t("chat.undo"), run: () => toggleMute(id, name) });
 }
 
 /* Messages from the server (net.js passes them on). */
@@ -166,10 +166,10 @@ function onChatMessage(msg) {
     addChatMessage(msg);
   } else if (msg.type === "chat-notice") {
     if (msg.id === net.id || chat.muted.has(msg.id)) return;
-    addChatNotice(msg.name + (msg.kind === "join" ? " entrou no mar." : " saiu do mar."));
+    addChatNotice(t(msg.kind === "join" ? "chat.join" : "chat.leave", { name: msg.name }));
   } else if (msg.type === "chat-refused") {
     const seconds = Math.max(1, Math.ceil((msg.wait || 1500) / 1000));
-    addChatNotice("Calma, capitão: espere " + seconds + " s para mandar outra mensagem.");
+    addChatNotice(t("chat.wait", { s: seconds }));
     // give the refused line back so it can be sent again
     const input = document.getElementById("chat-input");
     if (!input.value) input.value = chat.lastSent;

@@ -70,7 +70,7 @@ const SETTING_SLIDERS = [
 ];
 
 function formatTimes(value, digits) {
-  return value.toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits }) + "×";
+  return value.toLocaleString(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits }) + "×";
 }
 
 function settingsOpen() {
@@ -91,6 +91,10 @@ function refreshSettingsPanel() {
   sensi.disabled = !settings.aimLock;
   sensi.closest(".settings-range").classList.toggle("off", !settings.aimLock);
 }
+
+onLanguageChange(() => {
+  if (settingsOpen()) refreshSettingsPanel(); // 1,5× in Portuguese and German, 1.5× in English
+});
 
 let settingsOpener = null;
 
@@ -328,7 +332,7 @@ function bindAimLock() {
     document.body.classList.toggle("aim-locked", locked);
     if (locked) {
       placeAimCursor(aimTarget());
-      showToast("Mira presa. Esc solta o mouse.");
+      showToast(t("aim.locked"));
       return;
     }
     aim.unlockedAt = performance.now();
