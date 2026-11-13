@@ -121,8 +121,9 @@ const dockDistance = COMBAT.place.buildRange + COMBAT.buildingStats[DOCK].size;
   const towardB = Math.atan2(pb.y - pa.y, pb.x - pa.x);
   const towardA = towardB + Math.PI;
 
-  // 1. distinct ids, and B's welcome lists A
+  // 1. distinct ids, and B's welcome lists A; the welcome says the server's version
   assert(wa.id !== wb.id, "players must get distinct ids");
+  assert(wa.version === require("../shared/version.js"), "the welcome must carry the game version");
   assert(wb.players.some((p) => p.id === wa.id), "B's welcome must include A");
 
   // 2. spawned close-ish together, but not on top of each other

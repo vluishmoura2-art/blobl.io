@@ -62,5 +62,7 @@ Preços, vida, dano e velocidades ficam todos em [`shared/combat.js`](shared/com
 | `JS/achievements.js` | Conquistas, salvas apenas no navegador do jogador |
 | `shared/combat.js` | Regras e valores do jogo, usados pelo cliente e pelo servidor |
 | `shared/chat-filter.js` | Filtro de palavrões do chat, aplicado no servidor |
+| `shared/version.js` | Versão do jogo, lida pela página e pelo servidor |
+| `JS/changelog.js` | Lista de novidades de cada versão |
 | `server.js` | Servidor WebSocket, validação das jogadas, combate e arquivos do jogo |
 | `test/mp-test.js` | Teste de integração do multiplayer |

@@ -28,6 +28,7 @@ const path = require("path");
 const { WebSocketServer } = require("ws");
 const COMBAT = require("./shared/combat.js");
 const { filterChat, cleanChat } = require("./shared/chat-filter.js");
+const VERSION = require("./shared/version.js");
 
 const ROOT = __dirname;
 
@@ -173,6 +174,7 @@ function onConnection(ws, req) {
 
   send(ws, {
     type: "welcome",
+    version: VERSION, // a page from an older version is asked to reload
     id,
     name: player.name,
     color: player.color,
@@ -916,7 +918,7 @@ function startServer(port = CONFIG.port) {
   const timer = setInterval(broadcastToAll, CONFIG.broadcastMs);
 
   server.listen(port, () => {
-    console.log(`hightide.io server on http://localhost:${port}`);
+    console.log(`hightide.io ${VERSION} server on http://localhost:${port}`);
     console.log(`Open several tabs to test multiplayer (no player limit).`);
   });
 

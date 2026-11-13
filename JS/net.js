@@ -94,6 +94,7 @@ function netMessage(raw) {
   if (msg.type === "welcome") {
     clearTimeout(joinTimer);
     resetMatch();
+    checkServerVersion(msg.version);
     net.id = msg.id;
     net.online = true;
     netHadSession = true;

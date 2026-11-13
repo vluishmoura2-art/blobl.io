@@ -226,9 +226,13 @@
         <select id="menu-tag"></select>
       </label>
       <button id="menu-play" type="button">Zarpar</button>
-      <button id="menu-settings" class="menu-secondary" type="button">Configurações</button>
+      <div id="menu-more">
+        <button id="menu-settings" class="menu-secondary" type="button">Configurações</button>
+        <button id="menu-news" class="menu-secondary" type="button">Novidades</button>
+      </div>
       <p id="menu-status" role="alert"></p>
     </div>
+    <p id="menu-version"></p>
   </div>
 
   <div id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
@@ -287,12 +291,26 @@
     </div>
   </div>
 
+  <div id="changelog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="changelog-title" hidden>
+    <div id="changelog-card" class="dialog-card">
+      <div class="dialog-head">
+        <h2 id="changelog-title" class="dialog-title">Novidades</h2>
+        <button id="changelog-close" class="dialog-close" type="button" aria-label="Fechar novidades">&times;</button>
+      </div>
+      <div id="changelog-list"></div>
+      <div id="changelog-actions">
+        <button id="changelog-done" type="button">Fechar</button>
+      </div>
+    </div>
+  </div>
+
   <svg id="aim-cursor" viewBox="0 0 20 20" aria-hidden="true">
     <path d="M2 2 L2 16 L6 12.5 L8.8 18.5 L11.4 17.3 L8.7 11.5 L14 11.5 Z" />
   </svg>
 
   <script src="JS/art.js" defer></script>
   <script src="shared/combat.js" defer></script>
+  <script src="shared/version.js" defer></script>
   <script src="JS/main.js" defer></script>
   <script src="JS/net.js" defer></script>
   <script src="JS/battle.js" defer></script>
@@ -301,6 +319,7 @@
   <script src="JS/settings.js" defer></script>
   <script src="JS/chat.js" defer></script>
   <script src="JS/tutorial.js" defer></script>
+  <script src="JS/changelog.js" defer></script>
   <script src="JS/achievements.js" defer></script>
 </body>
 </html>
