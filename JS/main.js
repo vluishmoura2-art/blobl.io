@@ -209,16 +209,22 @@ function updateCamera(dt) {
     }
   }
 
+  // the locked aim pressing against a window edge pans like a held key
+  const edge = aimEdgeVector();
+  dx += edge.x;
+  dy += edge.y;
+
+  const speed = CAMERA.speed * cameraSpeedFactor();
   if (dx !== 0 || dy !== 0) {
     const len = Math.hypot(dx, dy);
-    camera.tx += (dx / len) * CAMERA.speed * dt;
-    camera.ty += (dy / len) * CAMERA.speed * dt;
+    camera.tx += (dx / len) * speed * dt;
+    camera.ty += (dy / len) * speed * dt;
   }
 
   // the touch joystick: the farther it is pushed, the faster the camera goes
   const joy = joystickVector();
-  camera.tx += joy.x * CAMERA.speed * dt;
-  camera.ty += joy.y * CAMERA.speed * dt;
+  camera.tx += joy.x * speed * dt;
+  camera.ty += joy.y * speed * dt;
 
   camera.tx = clamp(camera.tx, 0, MAP.width);
   camera.ty = clamp(camera.ty, 0, MAP.height);
@@ -776,7 +782,7 @@ function drawCrosshair(w, h) {
 
   const world = screenToWorld(placement.mouseX, placement.mouseY, w, h);
   const color = crosshairHot(world.x, world.y) ? "#B23A2E" : INK;
-  const r = 8;
+  const r = 8 * settings.aimSize;
 
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
@@ -1320,6 +1326,8 @@ function deselectBuilding() {
 window.addEventListener("keydown", (e) => {
   // the menu's fields and browser shortcuts (Ctrl+S, ...) keep their keys
   if (!gameStarted || e.ctrlKey || e.metaKey || e.altKey) return;
+  // an open settings panel and any text field keep the keyboard to themselves
+  if (settingsOpen() || (e.target.closest && e.target.closest("input, select, textarea"))) return;
   if (handleChoiceKey(e)) return; // the upgrade panel answers 1, 2 and Esc first
 
   const key = e.key.toLowerCase();
