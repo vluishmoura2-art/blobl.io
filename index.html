@@ -143,10 +143,20 @@
   </div>
   <div id="touch-actions">
     <button id="touch-cancel" class="touch-button" type="button" hidden>Cancelar</button>
+    <button id="touch-chat" class="touch-button" type="button">Chat <span id="touch-chat-unread" hidden></span></button>
     <button id="touch-home" class="touch-button" type="button">Ilha</button>
     <button id="touch-pvp" class="touch-button dark" type="button" hidden>PvP</button>
   </div>
   <div id="touch-tip" hidden></div>
+
+  <div id="chat" aria-label="Chat">
+    <div id="chat-log" role="log" aria-live="polite"></div>
+    <form id="chat-form" hidden>
+      <input id="chat-input" type="text" autocomplete="off" spellcheck="false" enterkeyhint="send" placeholder="Mensagem para todos" aria-label="Mensagem do chat" />
+      <span id="chat-count" aria-hidden="true">0/120</span>
+    </form>
+    <p id="chat-hint">Enter: conversar · clique num nome para silenciar</p>
+  </div>
 
   <div id="toasts" role="status" aria-live="polite"></div>
   <div id="fps" hidden></div>
@@ -243,6 +253,15 @@
       </section>
 
       <section class="settings-group">
+        <h3>Chat</h3>
+        <label class="settings-toggle">
+          <input id="set-chat" type="checkbox" />
+          <span>Mostrar o chat</span>
+        </label>
+        <p class="settings-note">Desligado, você não vê nem manda mensagens.</p>
+      </section>
+
+      <section class="settings-group">
         <h3>Câmera</h3>
         <label class="settings-range">
           <span class="settings-name">Velocidade da câmera</span>
@@ -270,6 +289,7 @@
   <script src="JS/upgrades.js" defer></script>
   <script src="JS/touch.js" defer></script>
   <script src="JS/settings.js" defer></script>
+  <script src="JS/chat.js" defer></script>
   <script src="JS/guide.js" defer></script>
   <script src="JS/achievements.js" defer></script>
 </body>

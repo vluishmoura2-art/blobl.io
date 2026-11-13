@@ -1648,6 +1648,7 @@ function resetMatch() {
   net.myPvp = false;
   net.players = new Map();
   document.getElementById("toasts").textContent = "";
+  clearChat();
 
   updateToolButtons();
   refreshPowerUI();

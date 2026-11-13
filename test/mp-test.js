@@ -329,6 +329,44 @@ const dockDistance = COMBAT.place.buildRange + COMBAT.buildingStats[DOCK].size;
   console.log("  cheats OK: gold, purchases, placement, boats and teleports are enforced");
   C.close();
 
+  // 9b. chat: everyone gets each line, trimmed to 120 letters, filtered, and rate limited
+  A.clearQueue();
+  B.clearQueue();
+  const D = await connect();
+  const wd = await withTimeout(D.next("welcome"), 5000, "D welcome");
+  D.send({ type: "identity", name: "M3rda Barba", color: "#334455" });
+  const joined = await withTimeout(A.next("chat-notice"), 3000, "join notice");
+  assert(joined.kind === "join" && joined.id === wd.id, "A should hear that D arrived");
+  assert(joined.name === "***** Barba", "a bad word in a name must be starred out: " + joined.name);
+
+  D.send({ type: "chat", text: "  bom   dia,\n capitães  " });
+  const hello = await withTimeout(B.next("chat"), 3000, "chat line");
+  assert(hello.id === wd.id && hello.text === "bom dia, capitães", "the line reaches everyone, on one line: " + hello.text);
+  assert((await withTimeout(D.next("chat"), 3000, "own chat line")).text === hello.text, "the sender sees their line too");
+  assert((await withTimeout(A.next("chat"), 3000, "A's chat line")).text === hello.text, "every captain gets the line");
+
+  D.send({ type: "chat", text: "que p0rr4, vai tomar no cu! cuidado com o computador" });
+  const rude = await withTimeout(A.next("chat"), 3000, "filtered line");
+  assert(rude.text === "que *****, vai tomar no **! cuidado com o computador", "bad words are starred out: " + rude.text);
+
+  D.send({ type: "chat", text: "x".repeat(300) });
+  const long = await withTimeout(A.next("chat"), 3000, "long line");
+  assert(long.text.length === 120, "a line is cut at 120 letters, not " + long.text.length);
+
+  D.send({ type: "chat", text: "   " }); // nothing to say: not sent, and no token spent
+  for (let i = 0; i < 4; i++) D.send({ type: "chat", text: "spam " + i });
+  const refused = await withTimeout(D.next("chat-refused"), 3000, "rate limit");
+  assert(refused.reason === "rate" && refused.wait > 0, "a fast sender is told to wait");
+  await sleep(300);
+  const spam = [];
+  for (let m; (m = await Promise.race([A.next("chat"), sleep(50)])); ) spam.push(m.text);
+  assert(spam.length < 4, "a fast sender can't post every line: " + spam.length + " got through");
+
+  D.close();
+  const left = await withTimeout(A.next("chat-notice"), 3000, "leave notice");
+  assert(left.kind === "leave" && left.id === wd.id, "A should hear that D left");
+  console.log("  chat OK: relayed to all, one line of 120 letters, filtered, rate limited, joins and leaves");
+
   // 10. a destroyed island is reported, naming who destroyed it (A has 1 hp for this test)
   B.state.soldiers = [{ uid: 302, ...polar(pa, towardB, 110), dir: 0, kind: "tank" }];
   const sinking = await withTimeout(

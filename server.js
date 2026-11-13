@@ -15,6 +15,9 @@
    - Safe zone: every player spawns safe (safeTime ms). It clears
      when the timer runs out OR when the player presses space.
      Safe players cannot attack or be attacked.
+   - Relays the chat to everyone, after trimming each line to 120
+     letters, limiting how fast a player may send and starring out
+     bad words (shared/chat-filter.js).
    - Also serves the static files, so open
         http://localhost:8080  in several tabs to test.
    ========================================================= */
@@ -24,6 +27,7 @@ const fs = require("fs");
 const path = require("path");
 const { WebSocketServer } = require("ws");
 const COMBAT = require("./shared/combat.js");
+const { filterChat, cleanChat } = require("./shared/chat-filter.js");
 
 const ROOT = __dirname;
 
@@ -151,6 +155,9 @@ function onConnection(ws, req) {
     safe: true,
     safeUntil: Date.now() + CONFIG.safeTime,
     pvp: false,
+    announced: false, // the chat said this captain arrived (once their name is known)
+    chatTokens: CHAT.burst,
+    chatAt: Date.now(),
   };
 
   players.set(id, player);
@@ -161,6 +168,7 @@ function onConnection(ws, req) {
   ws.on("close", () => {
     players.delete(id);
     console.log(`[-] ${player.name} left (${players.size} online)`);
+    if (player.announced) broadcast({ type: "chat-notice", kind: "leave", id, name: player.name, color: player.color });
   });
 
   send(ws, {
@@ -191,9 +199,9 @@ function handleMessage(player, raw) {
       break;
 
     case "identity": // name shown on the leaderboard, color tints the base
-      if (typeof msg.name === "string" && msg.name.trim()) {
-        player.name = msg.name.trim().slice(0, 16);
-      }
+      // the name shows in the chat too, so it goes through the same filter
+      const name = filterChat(cleanChat(msg.name, 16)).text;
+      if (name) player.name = name;
       if (typeof msg.color === "string" && /^#[0-9a-fA-F]{6}$/.test(msg.color)) {
         player.color = msg.color;
       }
@@ -203,13 +211,49 @@ function handleMessage(player, raw) {
       } else if (typeof msg.tag === "string" && /^[a-z0-9-]{1,32}$/.test(msg.tag)) {
         player.tag = msg.tag;
       }
+      if (!player.announced) {
+        player.announced = true;
+        broadcast({ type: "chat-notice", kind: "join", id: player.id, name: player.name, color: player.color });
+      }
       break;
 
     case "pvp": // player pressed space: drop their safe zone, enable PvP
       player.pvp = true;
       player.safe = false;
       break;
+
+    case "chat":
+      handleChat(player, msg.text);
+      break;
   }
+}
+
+/* ---------- chat ---------- */
+
+const CHAT = {
+  maxLength: 120, // letters per message
+  burst: 3, // messages that may be sent in a row
+  refillMs: 1500, // after the burst, one more message every 1.5 s
+};
+
+/* One line of chat, checked here whatever the page did: trimmed to 120
+   letters, rate limited and with bad words starred out before anyone sees it. */
+function handleChat(player, raw) {
+  const text = cleanChat(raw, CHAT.maxLength);
+  if (!text) return;
+
+  const now = Date.now();
+  player.chatTokens = Math.min(CHAT.burst, player.chatTokens + (now - player.chatAt) / CHAT.refillMs);
+  player.chatAt = now;
+  if (player.chatTokens < 1) {
+    const wait = Math.ceil((1 - player.chatTokens) * CHAT.refillMs);
+    send(player.ws, { type: "chat-refused", reason: "rate", wait });
+    return;
+  }
+  player.chatTokens -= 1;
+
+  const filtered = filterChat(text);
+  broadcast({ type: "chat", id: player.id, name: player.name, color: player.color, text: filtered.text });
 }
 
 /* ---------- what a player may do (the server has the last word) ---------- */
@@ -818,6 +862,13 @@ function broadcastToAll() {
 
 function send(ws, obj) {
   if (ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+function broadcast(obj) {
+  const data = JSON.stringify(obj);
+  for (const p of players.values()) {
+    if (p.ws.readyState === 1) p.ws.send(data);
+  }
 }
 
 /* ---------- static file server ---------- */

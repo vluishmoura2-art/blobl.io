@@ -22,6 +22,7 @@ const SETTINGS_DEFAULTS = {
   sensi: 1,
   aimSize: 1,
   cameraSpeed: 1,
+  chat: true,
 };
 
 const SETTINGS_RANGES = {
@@ -40,6 +41,7 @@ function loadSettings() {
     /* private mode or a broken entry: keep the defaults */
   }
   if (typeof saved.aimLock === "boolean") settings.aimLock = saved.aimLock;
+  if (typeof saved.chat === "boolean") settings.chat = saved.chat;
   for (const [key, [min, max]] of Object.entries(SETTINGS_RANGES)) {
     const value = Number(saved[key]);
     if (Number.isFinite(value)) settings[key] = Math.min(max, Math.max(min, value));
@@ -78,6 +80,7 @@ function settingsOpen() {
 
 function refreshSettingsPanel() {
   document.getElementById("set-aimlock").checked = settings.aimLock;
+  document.getElementById("set-chat").checked = settings.chat;
   for (const slider of SETTING_SLIDERS) {
     const input = document.getElementById(slider.id);
     input.value = String(settings[slider.key]);
@@ -115,6 +118,12 @@ function bindSettingsPanel() {
     refreshSettingsPanel();
   });
 
+  document.getElementById("set-chat").addEventListener("change", (e) => {
+    settings.chat = e.target.checked;
+    saveSettings();
+    if (typeof refreshChatVisibility === "function") refreshChatVisibility();
+  });
+
   for (const slider of SETTING_SLIDERS) {
     document.getElementById(slider.id).addEventListener("input", (e) => {
       const [min, max] = SETTINGS_RANGES[slider.key];
@@ -129,6 +138,7 @@ function bindSettingsPanel() {
     releaseAim();
     saveSettings();
     refreshSettingsPanel();
+    if (typeof refreshChatVisibility === "function") refreshChatVisibility();
   });
 
   document.getElementById("settings-done").addEventListener("click", closeSettings);

@@ -137,6 +137,8 @@ function netMessage(raw) {
     if (me) reconcileSelf(me);
 
     refreshLeaderboard();
+  } else if (msg.type === "chat" || msg.type === "chat-notice" || msg.type === "chat-refused") {
+    onChatMessage(msg);
   }
 }
 
